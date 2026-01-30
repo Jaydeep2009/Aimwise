@@ -29,38 +29,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 import androidx.navigation.NavHostController
-
-//@Composable
-//fun Home(navController: NavHostController) {
-//    val authViewModel: AuthViewModel = viewModel()
-//    Column(modifier = Modifier.fillMaxSize(),
-//        horizontalAlignment = Alignment.CenterHorizontally,
-//        verticalArrangement = Arrangement.Center){
-//        Text(text = "Home Screen")
-//
-//        Button(onClick = {
-//            authViewModel.logout()
-//            navController.navigate("login") {
-//                popUpTo("home") {
-//                    inclusive = true
-//                }
-//            }
-//        },
-//                modifier= Modifier.fillMaxWidth()
-//        ) {
-//            Text(text = "Logout")
-//        }
-//    }
-//}
+import com.jaydeep.aimwise.data.model.Goal
+import com.jaydeep.aimwise.viewmodel.GoalViewModel
 
 
 @Composable
 fun HomeScreen(navController: NavHostController) {
-
-    var goals by remember { mutableStateOf(listOf<String>()) }
+    val goalViewModel : GoalViewModel= viewModel()
+    val goals by goalViewModel.goals.collectAsState()
     var showDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        goalViewModel.loadGoals()
+    }
+
 
     Box(modifier = Modifier.fillMaxSize()) {
 
@@ -72,7 +58,8 @@ fun HomeScreen(navController: NavHostController) {
         ) {
             items(goals) { goal ->
                 GoalCard(goal){
-                    navController.navigate("roadmap/$goal")
+                    navController.navigate("roadmap/${goal.id}")
+
                 }
             }
         }
@@ -93,7 +80,7 @@ fun HomeScreen(navController: NavHostController) {
     if (showDialog) {
         AddGoalDialog(
             onAdd = { newGoal ->
-                goals = goals + newGoal
+                goalViewModel.addGoal(newGoal)
                 showDialog = false
             },
             onDismiss = { showDialog = false }
@@ -103,9 +90,10 @@ fun HomeScreen(navController: NavHostController) {
 
 
 @Composable
-fun GoalCard(goal: String,
+fun GoalCard(goal: Goal,
              onClick: () -> Unit
 ) {
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -114,7 +102,7 @@ fun GoalCard(goal: String,
         elevation = CardDefaults.cardElevation(6.dp)
     ) {
         Text(
-            text = goal,
+            text = goal.title,
             modifier = Modifier.padding(16.dp),
             fontSize = 18.sp,
             fontWeight = FontWeight.Medium
