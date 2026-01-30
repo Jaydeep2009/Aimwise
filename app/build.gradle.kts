@@ -52,6 +52,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    //navigation
+    implementation("androidx.navigation:navigation-compose:2.8.0")
 
 
     // Firebase dependencies
@@ -70,6 +72,10 @@ dependencies {
 
 
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+    implementation(libs.androidx.compose.ui.text)
+    implementation(libs.androidx.compose.runtime.livedata)
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.compose.runtime)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
