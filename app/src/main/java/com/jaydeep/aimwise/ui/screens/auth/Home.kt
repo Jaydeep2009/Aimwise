@@ -79,9 +79,9 @@ fun HomeScreen(navController: NavHostController) {
     // Add Goal Dialog
     if (showDialog) {
         AddGoalDialog(
-            onAdd = { newGoal ->
-                goalViewModel.addGoal(newGoal)
+            onAdd = { goalText,days ->
                 showDialog = false
+                navController.navigate("loading/\$goalText/\$days")
             },
             onDismiss = { showDialog = false }
         )
@@ -112,10 +112,13 @@ fun GoalCard(goal: Goal,
 
 @Composable
 fun AddGoalDialog(
-    onAdd: (String) -> Unit,
+    onAdd: (String,Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var goalText by remember { mutableStateOf("") }
+    var days by remember { mutableStateOf(30f) }
+
+
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -144,15 +147,24 @@ fun AddGoalDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                Text("Duration: ${days.toInt()} days")
+
+                androidx.compose.material3.Slider(
+                    value = days,
+                    onValueChange = { days = it },
+                    valueRange = 1f..90f
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
                 Button(
                     onClick = {
                         if (goalText.isNotBlank()) {
-                            onAdd(goalText)
+                            onAdd(goalText,days.toInt())
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Add Goal")
+                    Text("Generate Roadmap")
                 }
             }
         }

@@ -76,6 +76,7 @@ dependencies {
     implementation(libs.androidx.compose.runtime.livedata)
     implementation(libs.androidx.ui)
     implementation(libs.androidx.compose.runtime)
+    implementation(libs.androidx.runtime)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

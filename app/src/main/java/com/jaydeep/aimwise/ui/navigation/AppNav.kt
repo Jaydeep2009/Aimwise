@@ -42,5 +42,12 @@ fun AppNav(){
             RoadmapScreen(goal)
         }
 
+        composable("loading/{goal}/{days}") { backStack ->
+            val goal = backStack.arguments?.getString("goal") ?: ""
+            val days = backStack.arguments?.getString("days")?.toInt() ?: 30
+            LoadingScreen(navController, goal, days)
+        }
+
+
     }
 }
