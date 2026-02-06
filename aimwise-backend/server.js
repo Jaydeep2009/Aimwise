@@ -15,6 +15,8 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
 // Generate Roadmap API
 // -------------------------------
 app.post("/generate-roadmap", async (req, res) => {
+    console.log("🔥 ROADMAP REQUEST RECEIVED");
+    console.log(req.body);
   try {
     const { goal,days } = req.body;
     const totalDays = Math.min(Math.max(days || 30, 1), 90);
