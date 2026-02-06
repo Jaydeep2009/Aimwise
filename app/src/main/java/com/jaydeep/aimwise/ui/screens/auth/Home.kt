@@ -1,5 +1,6 @@
 package com.jaydeep.aimwise.ui.screens.auth
 
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -81,7 +82,8 @@ fun HomeScreen(navController: NavHostController) {
         AddGoalDialog(
             onAdd = { goalText,days ->
                 showDialog = false
-                navController.navigate("loading/\$goalText/\$days")
+                val encodedGoal = Uri.encode(goalText)
+                navController.navigate("loading/$encodedGoal/$days")
             },
             onDismiss = { showDialog = false }
         )

@@ -8,22 +8,27 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
+class GoalViewModel : ViewModel() {
 
-class GoalViewModel: ViewModel() {
     private val repo = GoalRepository()
+
     private val _goals = MutableStateFlow<List<Goal>>(emptyList())
     val goals: StateFlow<List<Goal>> = _goals
 
-    fun loadGoals(){
-        viewModelScope.launch{
+    fun loadGoals() {
+        viewModelScope.launch {
             _goals.value = repo.getGoals()
         }
     }
 
-    fun addGoal(title:String){
+    // 🟢 AI-based goal creation
+    fun generateGoalWithRoadmap(title: String, days: Int) {
         viewModelScope.launch {
-            repo.addGoal(title)
-            loadGoals() // refresh list
+            val roadmap = repo.generateRoadmap(title, days)
+            if (roadmap != null) {
+                repo.saveGoalWithDays(title, roadmap)
+                loadGoals()
+            }
         }
     }
 }
