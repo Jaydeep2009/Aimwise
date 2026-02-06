@@ -1,5 +1,6 @@
 package com.jaydeep.aimwise.ui.screens
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -45,7 +46,8 @@ fun LoadingScreen(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Column{
+        Column(horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center){
             CircularProgressIndicator()
             Spacer(modifier = Modifier.height(16.dp))
             Text(text = "Generating your roadmap...")
