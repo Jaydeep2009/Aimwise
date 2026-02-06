@@ -8,7 +8,7 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitInstance {
 
-    private const val BASE_URL = "https://aimwise-backend.onrender.com/"
+    private const val BASE_URL = "https://aimwise.onrender.com/"
 
     private val logger = HttpLoggingInterceptor().apply {
         level = HttpLoggingInterceptor.Level.BODY

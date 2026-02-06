@@ -54,15 +54,29 @@ Format:
 
     const data = await response.json();
 
-    const text = data.choices?.[0]?.message?.content;
+    console.log("FULL AI RESPONSE:", JSON.stringify(data, null, 2));
 
-    console.log("AI RAW:", text);
+    // safe extraction
+    const text =
+      data.choices?.[0]?.message?.content ||
+      data.choices?.[0]?.text ||
+      "";
 
-    // extract json
-    const cleaned = text.replace(/```json/g, "").replace(/```/g, "");
+    if (!text) {
+      console.log("AI returned empty text");
+      return res.status(500).json({ error: "AI empty response" });
+    }
+
+    // remove markdown
+    const cleaned = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
     const json = JSON.parse(cleaned);
 
     res.json(json);
+
 
   } catch (err) {
     console.log("ERROR:", err);
