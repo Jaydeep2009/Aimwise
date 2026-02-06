@@ -45,8 +45,10 @@ fun LoadingScreen(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        CircularProgressIndicator()
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "Generating your roadmap...")
+        Column{
+            CircularProgressIndicator()
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(text = "Generating your roadmap...")
+        }
     }
 }
