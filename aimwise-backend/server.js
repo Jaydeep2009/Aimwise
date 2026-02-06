@@ -1,106 +1,59 @@
 import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-dotenv.config();
+import fetch from "node-fetch";
 
 const app = express();
-app.use(cors());
 app.use(express.json());
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
-
-// -------------------------------
-// Generate Roadmap API
-// -------------------------------
 app.post("/generate-roadmap", async (req, res) => {
-    console.log("🔥 ROADMAP REQUEST RECEIVED");
-    console.log(req.body);
   try {
-    const { goal,days } = req.body;
-    const totalDays = Math.min(Math.max(days || 30, 1), 90);
-
-
-    if (!goal) {
-      return res.status(400).json({ error: "Goal is required" });
-    }
-
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash"
-    });
+    const { goal, days } = req.body;
 
     const prompt = `
-You are a roadmap generator.
+Create a ${days}-day roadmap for: ${goal}
 
-Goal: ${goal}
-Create a ${totalDays}-day roadmap.
-Return ONLY valid JSON.
-Do NOT use markdown.
-Do NOT wrap in \`\`\`.
-Do NOT add explanations.
-
-Format exactly like this:
-
+Return ONLY JSON in this format:
 {
-  "title": "",
-  "durationDays": ${totalDays},
-  "days": [
-    {
-      "day": 1,
-      "tasks": []
-    }
-  ]
+ "title": "...",
+ "durationDays": ${days},
+ "days":[
+   {
+     "day":1,
+     "tasks":["task1","task2"]
+   }
+ ]
 }
-
-Rules:
-- ${totalDays} days
-- 2-4 tasks per day
-- practical tasks
 `;
 
-    const result = await model.generateContent(prompt);
-    let text = result.response.text();
-
-    // -------------------------------
-    // CLEAN RESPONSE (important)
-    // -------------------------------
-    text = text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-
-    let json;
-
-    try {
-      json = JSON.parse(text);
-    } catch (e) {
-      console.log("Raw AI response:", text);
-      return res.status(500).json({
-        error: "AI returned invalid JSON",
-        raw: text
-      });
-    }
-
-    res.json(json);
-
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      error: "Server error",
-      message: error.message
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.OPENROUTER_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "arcee-ai/trinity-large-preview",
+        messages: [
+          { role: "user", content: prompt }
+        ]
+      })
     });
+
+    const data = await response.json();
+
+    const text = data.choices[0].message.content;
+
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    const clean = text.substring(jsonStart, jsonEnd + 1);
+
+    const parsed = JSON.parse(clean);
+
+    res.json(parsed);
+
+  } catch (err) {
+    console.log("AI ERROR:", err);
+    res.status(500).json({ error: "AI failed" });
   }
 });
 
-//ping
-app.get("/ping", (req,res)=>{
-  console.log("PING HIT");
-  res.send("ok");
-});
-
-
-// -------------------------------
-app.listen(3000, () => {
-  console.log("Server running on port 3000");
-});
+app.listen(3000, () => console.log("Server running"));
