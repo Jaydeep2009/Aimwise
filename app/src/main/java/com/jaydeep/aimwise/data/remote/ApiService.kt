@@ -3,6 +3,7 @@ package com.jaydeep.aimwise.data.remote
 import com.jaydeep.aimwise.data.model.RoadmapResponse
 import retrofit2.Response
 import retrofit2.http.Body
+import retrofit2.http.GET
 import retrofit2.http.POST
 
 data class RoadmapRequest(
@@ -16,4 +17,8 @@ interface ApiService {
     suspend fun generateRoadmap(
         @Body request: RoadmapRequest
     ): Response<RoadmapResponse>
+
+    @GET("ping")
+    suspend fun ping(): String
+
 }

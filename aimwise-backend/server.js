@@ -91,6 +91,13 @@ Rules:
   }
 });
 
+//ping
+app.get("/ping", (req,res)=>{
+  console.log("PING HIT");
+  res.send("ok");
+});
+
+
 // -------------------------------
 app.listen(3000, () => {
   console.log("Server running on port 3000");

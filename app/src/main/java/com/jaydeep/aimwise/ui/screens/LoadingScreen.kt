@@ -5,9 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -20,13 +23,21 @@ fun LoadingScreen(
     navController: NavHostController,
     goal: String,
     days: Int,
-    goalViewModel: GoalViewModel = viewModel()
+    viewModel: GoalViewModel = viewModel()
 ) {
+    val done by viewModel.done.collectAsState()
 
-    LaunchedEffect(Unit) {
-        goalViewModel.generateGoalWithRoadmap(goal, days)
-        navController.navigate("home") {
-            popUpTo("home") { inclusive = true }
+    // run only once
+    LaunchedEffect(true) {
+        viewModel.generateGoalWithRoadmap(goal, days)
+    }
+
+    // navigate only when done
+    LaunchedEffect(done) {
+        if (done) {
+            navController.navigate("home") {
+                popUpTo("home") { inclusive = true }
+            }
         }
     }
 
@@ -34,10 +45,8 @@ fun LoadingScreen(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Generating roadmap...")
-            Spacer(modifier = Modifier.height(20.dp))
-            androidx.compose.material3.CircularProgressIndicator()
-        }
+        CircularProgressIndicator()
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(text = "Generating your roadmap...")
     }
 }

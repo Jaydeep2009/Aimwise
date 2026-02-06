@@ -15,6 +15,10 @@ class GoalViewModel : ViewModel() {
     private val _goals = MutableStateFlow<List<Goal>>(emptyList())
     val goals: StateFlow<List<Goal>> = _goals
 
+    private val _done = MutableStateFlow(false)
+    val done: StateFlow<Boolean> = _done
+
+
     fun loadGoals() {
         viewModelScope.launch {
             _goals.value = repo.getGoals()
@@ -23,12 +27,21 @@ class GoalViewModel : ViewModel() {
 
     // 🟢 AI-based goal creation
     fun generateGoalWithRoadmap(title: String, days: Int) {
+        if (_done.value) return   // prevent multiple calls
+
         viewModelScope.launch {
-            val roadmap = repo.generateRoadmap(title, days)
-            if (roadmap != null) {
-                repo.saveGoalWithDays(title, roadmap)
-                loadGoals()
+            try {
+                val roadmap = repo.generateRoadmap(title, days)
+
+                if (roadmap != null) {
+                    repo.saveGoalWithDays(title, roadmap)
+                    loadGoals()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
+
+            _done.value = true
         }
     }
 }
