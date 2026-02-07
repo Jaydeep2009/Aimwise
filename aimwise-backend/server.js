@@ -41,16 +41,19 @@ Format:
         method: "POST",
         headers: {
           "Authorization": `Bearer ${process.env.OPENROUTER_KEY}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://aimwise.onrender.com",
+          "X-Title": "Aimwise"
         },
         body: JSON.stringify({
-          model: "mistralai/mistral-7b-instruct:free",
+          model: "openrouter/auto",
           messages: [
             { role: "user", content: prompt }
           ]
         })
       }
     );
+
 
     const data = await response.json();
 
