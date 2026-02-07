@@ -16,18 +16,15 @@ app.get("/ping", (req, res) => {
 // 🟢 MAIN ROADMAP ROUTE
 app.post("/generate-roadmap", async (req, res) => {
   try {
+    console.log("ROADMAP HIT");
+    console.log("BODY:", req.body);
+
     const { goal, days } = req.body;
 
     const prompt = `
-You are a strict JSON generator.
-
 Create a ${days}-day roadmap for: ${goal}
 
 Return ONLY valid JSON.
-No explanation.
-No markdown.
-No backticks.
-
 Format:
 {
   "title": "string",
@@ -43,36 +40,49 @@ Format:
       {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_KEY}`,
-          "Content-Type": "application/json"
+          "Authorization": `Bearer ${process.env.OPENROUTER_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://aimwise.onrender.com",
+          "X-Title": "Aimwise"
         },
         body: JSON.stringify({
-          model: "deepseek/deepseek-chat",
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: 900,
-          response_format: { type: "json_object" }
+          model: "openrouter/auto",
+          messages: [
+            { role: "user", content: prompt }
+          ]
         })
       }
     );
 
+
     const data = await response.json();
 
-    if (!response.ok) {
-      console.log("OPENROUTER ERROR:", data);
-      return res.status(500).json(data);
-    }
+    console.log("FULL AI RESPONSE:", JSON.stringify(data, null, 2));
 
-    const text = data.choices?.[0]?.message?.content;
+    // safe extraction
+    const text =
+      data.choices?.[0]?.message?.content ||
+      data.choices?.[0]?.text ||
+      "";
 
     if (!text) {
-      return res.status(500).json({ error: "Empty AI response", raw: data });
+      console.log("AI returned empty text");
+      return res.status(500).json({ error: "AI empty response" });
     }
 
-    const json = JSON.parse(text);
+    // remove markdown
+    const cleaned = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
+    const json = JSON.parse(cleaned);
+
     res.json(json);
 
+
   } catch (err) {
-    console.log(err);
+    console.log("ERROR:", err);
     res.status(500).json({ error: "AI failed" });
   }
 });
