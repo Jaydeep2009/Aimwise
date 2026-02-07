@@ -1,13 +1,10 @@
 package com.jaydeep.aimwise.ui.navigation
 
-import RoadmapScreen
 import android.net.Uri
 import androidx.compose.runtime.Composable
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import com.google.firebase.auth.FirebaseAuth
 import com.jaydeep.aimwise.ui.screens.LoadingScreen
 import com.jaydeep.aimwise.ui.screens.auth.HomeScreen

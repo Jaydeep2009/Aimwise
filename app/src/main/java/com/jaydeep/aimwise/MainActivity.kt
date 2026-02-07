@@ -12,12 +12,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            LaunchedEffect(Unit) {
-                try {
-                    RetrofitInstance.api.ping()
-                } catch (_: Exception) {}
-            }
-
             AppNav()
         }
     }

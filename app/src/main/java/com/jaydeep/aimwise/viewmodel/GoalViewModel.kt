@@ -1,5 +1,4 @@
 package com.jaydeep.aimwise.viewmodel
-
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.jaydeep.aimwise.data.model.Goal
@@ -18,6 +17,17 @@ class GoalViewModel : ViewModel() {
     private val _done = MutableStateFlow(false)
     val done: StateFlow<Boolean> = _done
 
+    private var isGenerating = false   // 🔒 prevents duplicate calls
+
+    private val _pendingAdjustment = MutableStateFlow(false)
+    val pendingAdjustment: StateFlow<Boolean> = _pendingAdjustment
+
+    fun checkPending(goalId: String) {
+        viewModelScope.launch {
+            _pendingAdjustment.value = repo.isAdjustmentPending(goalId)
+        }
+    }
+
 
     fun loadGoals() {
         viewModelScope.launch {
@@ -25,9 +35,10 @@ class GoalViewModel : ViewModel() {
         }
     }
 
-    // 🟢 AI-based goal creation
     fun generateGoalWithRoadmap(title: String, days: Int) {
-        if (_done.value) return   // prevent multiple calls
+
+        if (isGenerating) return   // 🔒 block duplicates immediately
+        isGenerating = true
 
         viewModelScope.launch {
             try {
@@ -37,11 +48,20 @@ class GoalViewModel : ViewModel() {
                     repo.saveGoalWithDays(title, roadmap)
                     loadGoals()
                 }
+
             } catch (e: Exception) {
                 e.printStackTrace()
             }
 
             _done.value = true
+            isGenerating = false
         }
     }
+
+    fun checkMissedDay(goalId: String) {
+        viewModelScope.launch {
+            repo.checkForMissedDay(goalId)
+        }
+    }
+
 }

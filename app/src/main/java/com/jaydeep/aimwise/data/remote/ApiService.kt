@@ -18,7 +18,5 @@ interface ApiService {
         @Body request: RoadmapRequest
     ): Response<RoadmapResponse>
 
-    @GET("ping")
-    suspend fun ping(): String
 
 }
