@@ -1,4 +1,4 @@
-package com.jaydeep.aimwise.ui.screens.auth
+package com.jaydeep.aimwise.ui.screens
 
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -30,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Slider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -151,7 +151,7 @@ fun AddGoalDialog(
 
                 Text("Duration: ${days.toInt()} days")
 
-                androidx.compose.material3.Slider(
+                Slider(
                     value = days,
                     onValueChange = { days = it },
                     valueRange = 1f..90f

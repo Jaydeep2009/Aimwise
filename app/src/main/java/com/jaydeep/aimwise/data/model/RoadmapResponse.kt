@@ -6,7 +6,5 @@ data class RoadmapResponse(
     val days: List<DayPlan>
 )
 
-data class DayPlan(
-    val day: Int,
-    val tasks: List<String>
-)
+
+

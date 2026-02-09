@@ -6,5 +6,6 @@ data class Goal(
     val title: String = "",       // Goal text
     val roadmap: String = "",     // AI-generated roadmap (later)
     val createdAt: Long = 0L,      // Timestamp
-    val durationDays: Int
+    val durationDays: Int,
+    val currentDay: Int = 1
 )
