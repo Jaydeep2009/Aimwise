@@ -15,11 +15,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
 import com.google.firebase.auth.FirebaseAuth
 import com.jaydeep.aimwise.data.model.Goal
@@ -30,6 +33,7 @@ import com.jaydeep.aimwise.ui.state.ViewState
 import com.jaydeep.aimwise.viewmodel.GoalViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +49,7 @@ fun HomeScreen(navController: NavHostController, goalViewModel: GoalViewModel) {
 
     val scope = rememberCoroutineScope()
     val authRepository = remember { AuthRepository() }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     // Fetch username from Firestore
     LaunchedEffect(FirebaseAuth.getInstance().currentUser?.uid) {
@@ -59,6 +64,20 @@ fun HomeScreen(navController: NavHostController, goalViewModel: GoalViewModel) {
         if (user != null) {
             delay(300)
             goalViewModel.loadGoals()
+        }
+    }
+    
+    // Reload goals when app resumes (to update day after midnight)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                Log.d("HOME_SCREEN", "App resumed, reloading goals to update day")
+                goalViewModel.loadGoals()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
         }
     }
 

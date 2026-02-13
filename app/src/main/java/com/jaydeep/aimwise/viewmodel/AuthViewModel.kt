@@ -1,5 +1,6 @@
 package com.jaydeep.aimwise.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -133,6 +134,38 @@ class AuthViewModel(
      */
     fun resetAuthState() {
         _authState.value = ViewState.Success(Unit)
+    }
+
+    /**
+     * Signs in with Google using Credential Manager API.
+     * 
+     * Updates authState through the following progression:
+     * - Loading: Google sign-in in progress
+     * - Success: User signed in successfully, isLoggedIn set to true
+     * - Error: Sign-in failed with error message
+     * 
+     * @param context The application context
+     */
+    fun signInWithGoogle(context: Context) {
+        viewModelScope.launch {
+            _authState.value = ViewState.Loading
+            when (val result = repo.signInWithGoogle(context)) {
+                is Result.Success -> {
+                    _authState.value = ViewState.Success(Unit)
+                    _isLoggedIn.value = true
+                }
+                is Result.Error -> {
+                    _authState.value = ViewState.Error(
+                        message = result.exception.message ?: "Google sign-in failed",
+                        throwable = result.exception
+                    )
+                    _isLoggedIn.value = false
+                }
+                is Result.Loading -> {
+                    // Loading state already set
+                }
+            }
+        }
     }
 
     fun getCurrentUserId(): String? {
