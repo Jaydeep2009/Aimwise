@@ -125,6 +125,24 @@ class AuthRepository {
         }
     }
     
+    /**
+     * Fetches the username from Firestore for the current user.
+     * 
+     * @return The username string, or null if user is not authenticated or username not found
+     */
+    suspend fun getUsername(): String? {
+        return try {
+            val userId = auth.currentUser?.uid ?: return null
+            val document = firestore.collection("users")
+                .document(userId)
+                .get()
+                .await()
+            document.getString("username")
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
     // Legacy callback-based methods for backward compatibility
     // TODO: Remove these once AuthViewModel is refactored to use coroutines (Task 9)
     fun login(email: String, password: String, callback: (Boolean, String?) -> Unit) {

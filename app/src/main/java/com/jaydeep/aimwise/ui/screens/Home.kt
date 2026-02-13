@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,6 +23,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavHostController
 import com.google.firebase.auth.FirebaseAuth
 import com.jaydeep.aimwise.data.model.Goal
+import com.jaydeep.aimwise.data.repository.AuthRepository
 import com.jaydeep.aimwise.ui.components.FullScreenError
 import com.jaydeep.aimwise.ui.components.FullScreenLoading
 import com.jaydeep.aimwise.ui.state.ViewState
@@ -38,8 +40,16 @@ fun HomeScreen(navController: NavHostController, goalViewModel: GoalViewModel) {
 
     var showDialog by remember { mutableStateOf(false) }
     var showLoadingDialog by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var username by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
+    val authRepository = remember { AuthRepository() }
+
+    // Fetch username from Firestore
+    LaunchedEffect(FirebaseAuth.getInstance().currentUser?.uid) {
+        username = authRepository.getUsername()
+    }
 
     // Reload goals when user changes
     LaunchedEffect(FirebaseAuth.getInstance().currentUser?.uid) {
@@ -66,21 +76,56 @@ fun HomeScreen(navController: NavHostController, goalViewModel: GoalViewModel) {
             TopAppBar(
                 title = { Text("Aimwise") },
                 actions = {
-                    IconButton(onClick = {
-                        FirebaseAuth.getInstance().signOut()
-                        scope.launch {
-                            delay(200)
-                            navController.navigate("login") {
-                                popUpTo(navController.graph.startDestinationId) {
-                                    inclusive = true
-                                }
-                            }
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                Icons.Default.Menu,
+                                contentDescription = "Menu"
+                            )
                         }
-                    }) {
-                        Icon(
-                            Icons.Default.ExitToApp,
-                            contentDescription = "Logout"
-                        )
+                        
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            // Username display
+                            val displayName = username ?: "User"
+
+                            DropdownMenuItem(
+                                text = { 
+                                    Text(
+                                        text = displayName,
+                                        fontWeight = FontWeight.Bold
+                                    ) 
+                                },
+                                onClick = { },
+                                enabled = false
+                            )
+                            
+                            HorizontalDivider()
+                            
+                            DropdownMenuItem(
+                                text = { Text("Logout") },
+                                onClick = {
+                                    showMenu = false
+                                    FirebaseAuth.getInstance().signOut()
+                                    scope.launch {
+                                        delay(200)
+                                        navController.navigate("login") {
+                                            popUpTo(navController.graph.startDestinationId) {
+                                                inclusive = true
+                                            }
+                                        }
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.ExitToApp,
+                                        contentDescription = null
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             )
