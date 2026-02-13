@@ -56,6 +56,42 @@ class GoalRepository {
     class UserNotAuthenticatedException(message: String) : Exception(message)
 
     /**
+     * Calculates the current day number based on calendar days (midnight to midnight).
+     * 
+     * @param createdAt The timestamp when the goal was created
+     * @param durationDays The total duration of the goal in days
+     * @return The current day number (1-indexed), capped at durationDays
+     */
+    private fun calculateCurrentDay(createdAt: Long, durationDays: Int): Int {
+        val calendar = java.util.Calendar.getInstance()
+        
+        // Get today's date at midnight
+        val todayStart = calendar.apply {
+            timeInMillis = System.currentTimeMillis()
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        
+        // Get creation date at midnight
+        val createdCalendar = java.util.Calendar.getInstance()
+        val createdDayStart = createdCalendar.apply {
+            timeInMillis = createdAt
+            set(java.util.Calendar.HOUR_OF_DAY, 0)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        
+        // Calculate days difference + 1 (to start from day 1)
+        val daysSinceCreation = ((todayStart - createdDayStart) / (1000 * 60 * 60 * 24)).toInt() + 1
+        
+        // Cap at duration days
+        return minOf(daysSinceCreation, durationDays)
+    }
+
+    /**
      * Retrieves all goals for the currently authenticated user.
      * 
      * Goals are ordered by creation date (newest first) and limited to 50 results
@@ -74,10 +110,35 @@ class GoalRepository {
                 .await()
 
             snapshot.documents.map { doc ->
+                val createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis()
+                val durationDays = doc.getLong("durationDays")?.toInt() ?: 30
+                val storedCurrentDay = doc.getLong("currentDay")?.toInt() ?: 1
+                
+                // Calculate current day based on calendar days
+                val calculatedDay = calculateCurrentDay(createdAt, durationDays)
+                
+                android.util.Log.d("DAY_CALC", "Goal: ${doc.getString("title")}")
+                android.util.Log.d("DAY_CALC", "Stored day: $storedCurrentDay, Calculated day: $calculatedDay")
+                
+                // Update Firestore if the day has changed
+                if (calculatedDay > storedCurrentDay) {
+                    android.util.Log.d("DAY_CALC", "Updating Firestore from day $storedCurrentDay to $calculatedDay")
+                    val uid = auth.currentUser?.uid ?: throw UserNotAuthenticatedException("User not authenticated")
+                    firestore.collection("users")
+                        .document(uid)
+                        .collection("goals")
+                        .document(doc.id)
+                        .update("currentDay", calculatedDay)
+                        .await()
+                }
+                
                 Goal(
                     id = doc.id,
                     title = doc.getString("title") ?: "",
-                    durationDays = doc.getLong("durationDays")?.toInt() ?: 0
+                    durationDays = durationDays,
+                    currentDay = calculatedDay, // Use calculated day, not stored
+                    createdAt = createdAt,
+                    roadmap = doc.getString("roadmap") ?: ""
                 )
             }
         }
@@ -116,9 +177,8 @@ class GoalRepository {
             val durationDays = doc.getLong("durationDays")?.toInt() ?: 30
             val storedCurrentDay = doc.getLong("currentDay")?.toInt() ?: 1
             
-            // Calculate what day it should be based on calendar
-            val daysSinceCreation = ((System.currentTimeMillis() - createdAt) / (1000 * 60 * 60 * 24)).toInt() + 1
-            val calculatedDay = minOf(daysSinceCreation, durationDays)
+            // Calculate current day based on calendar days
+            val calculatedDay = calculateCurrentDay(createdAt, durationDays)
             
             // Update Firestore if the day has changed
             if (calculatedDay > storedCurrentDay) {
@@ -313,6 +373,7 @@ class GoalRepository {
 
         val startDate = goalSnap.getLong("createdAt") ?: return null
         val currentDay = goalSnap.getLong("currentDay")?.toInt() ?: 1
+        val durationDays = goalSnap.getLong("durationDays")?.toInt() ?: 30
         val pending = goalSnap.getBoolean("pendingAdjustment") ?: false
 
         // already pending → return stored missed day
@@ -320,8 +381,8 @@ class GoalRepository {
             return goalSnap.getLong("lastMissedDay")?.toInt()
         }
 
-        val today =
-            ((System.currentTimeMillis() - startDate) / (1000 * 60 * 60 * 24)).toInt() + 1
+        // Use calendar-based day calculation
+        val today = calculateCurrentDay(startDate, durationDays)
 
         if (today > currentDay) {
 
@@ -541,10 +602,8 @@ class GoalRepository {
         val createdAt = snap.getLong("createdAt") ?: return 1
         val duration = snap.getLong("durationDays")?.toInt() ?: 1
 
-        val today = ((System.currentTimeMillis() - createdAt)
-                / (1000 * 60 * 60 * 24)).toInt() + 1
-
-        return minOf(today, duration)
+        // Use calendar-based day calculation
+        return calculateCurrentDay(createdAt, duration)
     }
 
     /**
@@ -573,6 +632,7 @@ class GoalRepository {
 
         val taskDescriptions = daySnap.get("tasks") as? List<String> ?: return null
         val completedStates = daySnap.get("completed") as? List<Boolean> ?: return null
+        val status = daySnap.getString("status") ?: "pending"
 
         // Convert separate lists to Task objects
         val tasks = taskDescriptions.mapIndexed { index, description ->
@@ -582,7 +642,7 @@ class GoalRepository {
             )
         }
 
-        return DayPlan(day, tasks)
+        return DayPlan(day, tasks, status)
     }
 
 
