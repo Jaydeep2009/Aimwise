@@ -16,3 +16,7 @@ local.properties
 app/google-services.json
 aimwise-backend/.env
 
+# Kiro files
+.kiro/
+.kotlin/
+

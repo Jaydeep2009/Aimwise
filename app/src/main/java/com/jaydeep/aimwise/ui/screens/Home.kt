@@ -1,126 +1,254 @@
 package com.jaydeep.aimwise.ui.screens
 
-import android.net.Uri
+import android.util.Log
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Slider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.lifecycle.viewmodel.compose.viewModel
-
 import androidx.navigation.NavHostController
+import com.google.firebase.auth.FirebaseAuth
 import com.jaydeep.aimwise.data.model.Goal
+import com.jaydeep.aimwise.ui.components.FullScreenError
+import com.jaydeep.aimwise.ui.components.FullScreenLoading
+import com.jaydeep.aimwise.ui.state.ViewState
 import com.jaydeep.aimwise.viewmodel.GoalViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(navController: NavHostController) {
-    val goalViewModel : GoalViewModel= viewModel()
-    val goals by goalViewModel.goals.collectAsState()
+fun HomeScreen(navController: NavHostController, goalViewModel: GoalViewModel) {
+
+    val goalsState by goalViewModel.goalsState.collectAsState()
+    val roadmapState by goalViewModel.roadmapGenerationState.collectAsState()
+
     var showDialog by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        goalViewModel.loadGoals()
+    var showLoadingDialog by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
+
+    // Reload goals when user changes
+    LaunchedEffect(FirebaseAuth.getInstance().currentUser?.uid) {
+        val user = FirebaseAuth.getInstance().currentUser
+        Log.d("HOME_SCREEN", "User changed: ${user?.uid}")
+
+        if (user != null) {
+            delay(300)
+            goalViewModel.loadGoals()
+        }
     }
 
+    // After roadmap generation
+    LaunchedEffect(roadmapState) {
+        if (roadmapState is ViewState.Success && showLoadingDialog) {
+            showLoadingDialog = false
+            goalViewModel.resetDoneState()
+            goalViewModel.loadGoals()
+        }
+    }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Aimwise") },
+                actions = {
+                    IconButton(onClick = {
+                        FirebaseAuth.getInstance().signOut()
+                        scope.launch {
+                            delay(200)
+                            navController.navigate("login") {
+                                popUpTo(navController.graph.startDestinationId) {
+                                    inclusive = true
+                                }
+                            }
+                        }
+                    }) {
+                        Icon(
+                            Icons.Default.ExitToApp,
+                            contentDescription = "Logout"
+                        )
+                    }
+                }
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showDialog = true }) {
+                Text("+", fontSize = 30.sp)
+            }
+        }
+    ) { padding ->
 
-        // Goals List
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
+                .padding(padding)
         ) {
-            items(goals) { goal ->
-                GoalCard(goal){
-                    navController.navigate("roadmap/${goal.id}")
 
+            when (val state = goalsState) {
+
+                is ViewState.Loading -> {
+                    FullScreenLoading("Loading goals...")
+                }
+
+                is ViewState.Success -> {
+                    val goals = state.data
+
+                    if (goals.isEmpty()) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("No goals yet", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Create your first goal")
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp)
+                        ) {
+                            items(goals, key = { it.id }) { goal ->
+                                GoalCard(
+                                    goal = goal,
+                                    goalViewModel = goalViewModel,
+                                    onClick = {
+                                        navController.navigate("roadmap/${goal.id}")
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                is ViewState.Error -> {
+
+                    val isAuthError = state.message.contains("authenticated", true)
+
+                    if (isAuthError) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                "Authentication Error",
+                                fontSize = 24.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(state.message, textAlign = TextAlign.Center)
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Button(onClick = {
+                                FirebaseAuth.getInstance().signOut()
+                                scope.launch {
+                                    delay(300)
+                                    navController.navigate("login") {
+                                        popUpTo(navController.graph.startDestinationId) {
+                                            inclusive = true
+                                        }
+                                    }
+                                }
+                            }) {
+                                Text("Logout and Login Again")
+                            }
+                        }
+                    } else {
+                        FullScreenError(
+                            message = state.message,
+                            onRetry = { goalViewModel.loadGoals() }
+                        )
+                    }
                 }
             }
         }
-
-        // Floating Add Button
-        FloatingActionButton(
-            onClick = { showDialog = true },
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(20.dp)
-        ) {
-            Text("+",
-            fontSize = 30.sp)
-        }
     }
 
-    // Add Goal Dialog
     if (showDialog) {
         AddGoalDialog(
-            onAdd = { goalText,days ->
+            onAdd = { goal, days ->
                 showDialog = false
-                val encodedGoal = Uri.encode(goalText)
-                navController.navigate("loading/$encodedGoal/$days")
+                showLoadingDialog = true
+                goalViewModel.generateGoalWithRoadmap(goal, days)
             },
             onDismiss = { showDialog = false }
         )
     }
+
+    if (showLoadingDialog) {
+        RoadmapGenerationDialog(
+            roadmapState = roadmapState,
+            onDismiss = {
+                showLoadingDialog = false
+                goalViewModel.resetDoneState()
+            }
+        )
+    }
 }
 
-
 @Composable
-fun GoalCard(goal: Goal,
-             onClick: () -> Unit
+fun GoalCard(
+    goal: Goal,
+    goalViewModel: GoalViewModel,
+    onClick: () -> Unit
 ) {
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 10.dp)
-            .clickable{onClick()},
-        elevation = CardDefaults.cardElevation(6.dp)
+            .padding(vertical = 8.dp)
+            .clickable { onClick() }
     ) {
-        Text(
-            text = goal.title,
-            modifier = Modifier.padding(16.dp),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Medium
-        )
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(goal.title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Day ${goal.currentDay} of ${goal.durationDays}")
+            }
+
+            IconButton(
+                onClick = { goalViewModel.deleteGoal(goal.id) },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.error
+                )
+            }
+        }
     }
 }
 
 @Composable
 fun AddGoalDialog(
-    onAdd: (String,Int) -> Unit,
+    onAdd: (String, Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var goalText by remember { mutableStateOf("") }
     var days by remember { mutableStateOf(30f) }
-
-
+    var showError by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -131,7 +259,6 @@ fun AddGoalDialog(
                 modifier = Modifier.padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-
                 Text(
                     text = "Add Your Goal",
                     fontSize = 20.sp,
@@ -142,9 +269,16 @@ fun AddGoalDialog(
 
                 OutlinedTextField(
                     value = goalText,
-                    onValueChange = { goalText = it },
+                    onValueChange = { 
+                        goalText = it
+                        showError = false
+                    },
                     label = { Text("Goal") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = showError,
+                    supportingText = if (showError) {
+                        { Text("Please enter a goal", color = MaterialTheme.colorScheme.error) }
+                    } else null
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -158,10 +292,13 @@ fun AddGoalDialog(
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
+
                 Button(
                     onClick = {
                         if (goalText.isNotBlank()) {
-                            onAdd(goalText,days.toInt())
+                            onAdd(goalText, days.toInt())
+                        } else {
+                            showError = true
                         }
                     },
                     modifier = Modifier.fillMaxWidth()
@@ -173,5 +310,36 @@ fun AddGoalDialog(
     }
 }
 
+@Composable
+fun RoadmapGenerationDialog(
+    roadmapState: ViewState<Unit>,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = { if (roadmapState !is ViewState.Loading) onDismiss() }) {
+        Card {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
 
+                when (roadmapState) {
+                    is ViewState.Loading -> {
+                        CircularProgressIndicator()
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Generating roadmap...")
+                    }
 
+                    is ViewState.Success -> {
+                        Text("Success!")
+                        Button(onClick = onDismiss) { Text("OK") }
+                    }
+
+                    is ViewState.Error -> {
+                        Text(roadmapState.message)
+                        Button(onClick = onDismiss) { Text("Close") }
+                    }
+                }
+            }
+        }
+    }
+}

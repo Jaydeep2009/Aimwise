@@ -7,9 +7,7 @@ plugins {
 
 android {
     namespace = "com.jaydeep.aimwise"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.jaydeep.aimwise"
@@ -39,6 +37,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -77,12 +76,16 @@ dependencies {
 
 
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
+    // Compose dependencies managed by BoM - duplicates removed
     implementation(libs.androidx.compose.ui.text)
     implementation(libs.androidx.compose.runtime.livedata)
-    implementation(libs.androidx.ui)
-    implementation(libs.androidx.compose.runtime)
-    implementation(libs.androidx.runtime)
     implementation(libs.androidx.compose.foundation.layout)
+    implementation(libs.androidx.benchmark.common)
+    implementation(libs.material)
+    implementation(libs.androidx.navigation.safe.args.generator) {
+        exclude(group = "xpp3", module = "xpp3")
+        exclude(group = "xmlpull", module = "xmlpull")
+    }
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
