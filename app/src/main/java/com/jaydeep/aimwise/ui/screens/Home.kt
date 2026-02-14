@@ -9,12 +9,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -24,6 +27,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.navigation.NavHostController
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkManager
 import com.google.firebase.auth.FirebaseAuth
 import com.jaydeep.aimwise.data.model.Goal
 import com.jaydeep.aimwise.data.repository.AuthRepository
@@ -31,6 +36,7 @@ import com.jaydeep.aimwise.ui.components.FullScreenError
 import com.jaydeep.aimwise.ui.components.FullScreenLoading
 import com.jaydeep.aimwise.ui.state.ViewState
 import com.jaydeep.aimwise.viewmodel.GoalViewModel
+import com.jaydeep.aimwise.worker.DailyTaskReminderWorker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -274,6 +280,35 @@ fun GoalCard(
     goalViewModel: GoalViewModel,
     onClick: () -> Unit
 ) {
+    var completedTasks by remember { mutableStateOf(0) }
+    var totalTasks by remember { mutableStateOf(0) }
+    var todayCompletedTasks by remember { mutableStateOf(0) }
+    var todayTotalTasks by remember { mutableStateOf(0) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(goal.id, goal.currentDay) {
+        scope.launch {
+            try {
+                // Get overall completion
+                val (completed, total) = goalViewModel.getGoalTaskCompletion(goal.id)
+                completedTasks = completed
+                totalTasks = total
+                
+                // Get today's tasks completion
+                val todayPlan = goalViewModel.getDayPlanForDay(goal.id, goal.currentDay)
+                if (todayPlan != null) {
+                    todayCompletedTasks = todayPlan.tasks.count { it.isCompleted }
+                    todayTotalTasks = todayPlan.tasks.size
+                }
+            } catch (e: Exception) {
+                // Handle error silently
+            }
+        }
+    }
+
+    val progress = if (totalTasks > 0) completedTasks.toFloat() / totalTasks else 0f
+    val hasPendingTasks = todayTotalTasks > 0 && todayCompletedTasks < todayTotalTasks
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -283,10 +318,38 @@ fun GoalCard(
 
         Box(modifier = Modifier.fillMaxWidth()) {
 
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(goal.title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Column(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .padding(end = 40.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(goal.title, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    if (hasPendingTasks) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Pending tasks",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("Day ${goal.currentDay} of ${goal.durationDays}")
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "$completedTasks of $totalTasks tasks completed",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
 
             IconButton(

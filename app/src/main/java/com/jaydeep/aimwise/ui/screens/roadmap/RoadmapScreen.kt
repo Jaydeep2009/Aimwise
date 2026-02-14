@@ -108,13 +108,21 @@ fun RoadmapScreen(
             // Use remember to avoid recalculating on every recomposition
             val currentDayValue = remember(day) { day ?: 1 }
             
-            // Use derivedStateOf for computed values that depend on state
-            val progressValue by remember(currentDayValue, goal.durationDays) {
-                derivedStateOf { currentDayValue.toFloat() / goal.durationDays }
+            // Calculate task completion percentage
+            val completedTasks = remember(dayPlan) { dayPlan.tasks.count { it.isCompleted } }
+            val totalTasks = remember(dayPlan) { dayPlan.tasks.size }
+            val taskProgress by remember(completedTasks, totalTasks) {
+                derivedStateOf { 
+                    if (totalTasks > 0) completedTasks.toFloat() / totalTasks else 0f
+                }
             }
             
             val dayText by remember(currentDayValue, goal.durationDays) {
                 derivedStateOf { "Day $currentDayValue of ${goal.durationDays}" }
+            }
+            
+            val progressText by remember(completedTasks, totalTasks) {
+                derivedStateOf { "$completedTasks of $totalTasks tasks completed" }
             }
 
             Column(
@@ -129,10 +137,14 @@ fun RoadmapScreen(
 
                 Text(dayText)
 
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(progressText, fontSize = 14.sp)
+
                 Spacer(modifier = Modifier.height(12.dp))
 
                 LinearProgressIndicator(
-                    progress = { progressValue },
+                    progress = { taskProgress },
                     modifier = Modifier.fillMaxWidth()
                 )
 

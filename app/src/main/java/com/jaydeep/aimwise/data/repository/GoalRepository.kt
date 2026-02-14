@@ -645,6 +645,37 @@ class GoalRepository {
         return DayPlan(day, tasks, status)
     }
 
+    /**
+     * Calculates the total task completion percentage for a goal.
+     * 
+     * @param goalId The unique identifier of the goal
+     * @return Pair of (completed tasks count, total tasks count)
+     * @throws UserNotAuthenticatedException if no user is currently authenticated
+     */
+    suspend fun getGoalTaskCompletion(goalId: String): Pair<Int, Int> {
+        val uid = auth.currentUser?.uid 
+            ?: throw UserNotAuthenticatedException("User not authenticated")
+
+        val daysSnap = firestore.collection("users")
+            .document(uid)
+            .collection("goals")
+            .document(goalId)
+            .collection("days")
+            .get()
+            .await()
+
+        var totalCompleted = 0
+        var totalTasks = 0
+
+        daysSnap.documents.forEach { dayDoc ->
+            val completedStates = dayDoc.get("completed") as? List<Boolean> ?: emptyList()
+            totalCompleted += completedStates.count { it }
+            totalTasks += completedStates.size
+        }
+
+        return Pair(totalCompleted, totalTasks)
+    }
+
 
     suspend fun deleteGoal(goalId: String) {
         val uid = auth.currentUser?.uid

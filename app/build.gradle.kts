@@ -78,6 +78,9 @@ dependencies {
     // Optional — Firebase Analytics (if you want analytics)
     implementation ("com.google.firebase:firebase-analytics")
 
+    // WorkManager for background tasks
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
 
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.4")
     // Compose dependencies managed by BoM - duplicates removed

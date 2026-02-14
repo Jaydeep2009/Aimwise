@@ -118,8 +118,11 @@ fun FullRoadmapScreen(
             }
             goalState is ViewState.Success -> {
                 val goal = (goalState as ViewState.Success).data
-                val completedDays = allDays.count { it.status == "completed" }
-                val progress = completedDays.toFloat() / goal.durationDays
+                
+                // Calculate total task completion across all days
+                val totalCompletedTasks = allDays.sumOf { it.tasks.count { task -> task.isCompleted } }
+                val totalTasks = allDays.sumOf { it.tasks.size }
+                val progress = if (totalTasks > 0) totalCompletedTasks.toFloat() / totalTasks else 0f
 
                 Column(
                     modifier = Modifier
@@ -145,7 +148,7 @@ fun FullRoadmapScreen(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "$completedDays of ${goal.durationDays} days completed",
+                                text = "$totalCompletedTasks of $totalTasks tasks completed",
                                 fontSize = 16.sp,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer
                             )

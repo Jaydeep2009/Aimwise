@@ -427,6 +427,16 @@ class GoalViewModel(
         }
     }
 
+    /**
+     * Gets the total task completion for a goal.
+     * 
+     * @param goalId The unique identifier of the goal
+     * @return Pair of (completed tasks count, total tasks count)
+     */
+    suspend fun getGoalTaskCompletion(goalId: String): Pair<Int, Int> {
+        return repo.getGoalTaskCompletion(goalId)
+    }
+
     fun loadDay(goalId: String, day: Int) {
         viewModelScope.launch {
             _dayPlanState.value = ViewState.Loading

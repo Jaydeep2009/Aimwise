@@ -152,6 +152,10 @@ class AuthRepository {
     /**
      * Signs in with Google using Credential Manager API.
      * 
+     * Note: This may fail with SecurityException on some devices/emulators due to
+     * Google Play Services compatibility issues. The error "Unknown calling package name"
+     * typically indicates SHA-1 fingerprint mismatch or outdated Play Services.
+     * 
      * @param context The application context
      * @return Result.Success if login succeeds, Result.Error with exception details if it fails
      */
@@ -161,7 +165,7 @@ class AuthRepository {
             
             val googleIdOption = GetGoogleIdOption.Builder()
                 .setFilterByAuthorizedAccounts(false)
-                .setServerClientId("224305430342-6onqtdofe5u8e4oqcao288r50k1932pe.apps.googleusercontent.com") // Replace with your Web Client ID from Firebase Console
+                .setServerClientId("224305430342-6onqtdofe5u8e4oqcao288r50k1932pe.apps.googleusercontent.com")
                 .build()
             
             val request = GetCredentialRequest.Builder()
@@ -194,7 +198,16 @@ class AuthRepository {
             }
             
             Result.Success(Unit)
+        } catch (e: SecurityException) {
+            // SecurityException typically means SHA-1 fingerprint mismatch or Play Services issue
+            android.util.Log.e("AuthRepository", "Google Sign-In SecurityException: ${e.message}")
+            android.util.Log.e("AuthRepository", "This usually means:")
+            android.util.Log.e("AuthRepository", "1. SHA-1 fingerprint in Firebase doesn't match your build")
+            android.util.Log.e("AuthRepository", "2. Google Play Services is outdated on this device")
+            android.util.Log.e("AuthRepository", "3. Device/emulator doesn't have proper Play Services")
+            Result.Error(Exception("Google sign-in failed: SHA-1 fingerprint mismatch or Play Services issue. Check logs for details."))
         } catch (e: Exception) {
+            android.util.Log.e("AuthRepository", "Google Sign-In failed: ${e.message}", e)
             Result.Error(Exception("Google sign-in failed: ${e.message}"))
         }
     }
