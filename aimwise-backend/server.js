@@ -24,38 +24,15 @@ const PORT = process.env.PORT || 3000;
 /* CACHE WITH TTL (Time-To-Live)                     */
 /* -------------------------------------------------- */
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+// Cache TTL: 1 hour - balances freshness with API cost reduction
+const CACHE_TTL_MS = 60 * 60 * 1000;
 
 const roadmapCache = new Map();
 
-/*
-Cache entry structure:
-{
-  data: <roadmap object>,
-  timestamp: <creation time in ms>
-}
-*/
-
-/**
- * Generates a cache key from goal and days parameters.
- * 
- * @param {string} goal - The goal string
- * @param {number} days - Number of days
- * @returns {string} Cache key in format "goal-days" (lowercase, trimmed)
- * 
- * @example
- * getCacheKey("Learn React", 30) // returns "learn react-30"
- */
 function getCacheKey(goal, days) {
   return `${goal.toLowerCase().trim()}-${days}`;
 }
 
-/**
- * Retrieves a cached roadmap if it exists and hasn't expired.
- * 
- * @param {string} key - Cache key
- * @returns {Object|null} Cached roadmap data or null if not found/expired
- */
 function getCachedRoadmap(key) {
   const entry = roadmapCache.get(key);
   
@@ -65,8 +42,8 @@ function getCachedRoadmap(key) {
   
   const age = Date.now() - entry.timestamp;
   
+  // Cache expired, remove it
   if (age > CACHE_TTL_MS) {
-    // Cache expired, remove it
     roadmapCache.delete(key);
     return null;
   }
@@ -74,12 +51,6 @@ function getCachedRoadmap(key) {
   return entry.data;
 }
 
-/**
- * Stores a roadmap in the cache with current timestamp.
- * 
- * @param {string} key - Cache key
- * @param {Object} data - Roadmap data to cache
- */
 function setCachedRoadmap(key, data) {
   roadmapCache.set(key, {
     data: data,
@@ -87,7 +58,7 @@ function setCachedRoadmap(key, data) {
   });
 }
 
-// Periodic cache cleanup (every 10 minutes)
+// Periodic cache cleanup every 10 minutes
 setInterval(() => {
   const now = Date.now();
   let evicted = 0;
@@ -108,20 +79,10 @@ setInterval(() => {
 /* SAFE JSON PARSER WITH VALIDATION                  */
 /* -------------------------------------------------- */
 
-/**
- * Attempts to parse JSON text with automatic fixing of common issues.
- * 
- * @param {string} text - JSON text to parse
- * @returns {Object} Result object with success flag and data/error
- * @returns {boolean} returns.success - Whether parsing succeeded
- * @returns {Object} [returns.data] - Parsed JSON object (if success)
- * @returns {string} [returns.error] - Error message (if failed)
- * @returns {string} [returns.originalText] - First 200 chars of input (if failed)
- * 
- * @example
- * tryParseJSON('{"key": "value"}') // { success: true, data: { key: "value" } }
- * tryParseJSON('invalid') // { success: false, error: "JSON parsing failed: ..." }
- */
+// Parses JSON with automatic fixing of common AI response issues:
+// - Trailing commas in objects/arrays
+// - Extra whitespace
+// Returns first 200 chars on error for debugging
 function tryParseJSON(text) {
   if (!text || typeof text !== 'string') {
     return { success: false, error: "Empty or invalid text" };
@@ -132,7 +93,6 @@ function tryParseJSON(text) {
     return { success: true, data: parsed };
   } catch (firstError) {
     try {
-      // Try fixing common JSON issues
       const fixed = text
         .replace(/,\s*}/g, "}")
         .replace(/,\s*]/g, "]")
@@ -143,24 +103,13 @@ function tryParseJSON(text) {
       return { 
         success: false, 
         error: `JSON parsing failed: ${secondError.message}`,
-        originalText: text.substring(0, 200) // First 200 chars for debugging
+        originalText: text.substring(0, 200)
       };
     }
   }
 }
 
-/**
- * Validates that a parsed JSON object has the correct roadmap structure.
- * 
- * @param {Object} json - Parsed JSON object to validate
- * @returns {Object} Validation result
- * @returns {boolean} returns.valid - Whether structure is valid
- * @returns {string} [returns.error] - Error message if invalid
- * 
- * @example
- * validateRoadmapStructure({ title: "Goal", durationDays: 30, days: [] })
- * // { valid: true }
- */
+// Validates roadmap structure: title, durationDays, days array with day numbers and tasks
 function validateRoadmapStructure(json) {
   if (!json || typeof json !== 'object') {
     return { valid: false, error: "Response is not an object" };
@@ -201,16 +150,6 @@ function validateRoadmapStructure(json) {
 /* DEEPSEEK CALL WITH BETTER ERROR HANDLING          */
 /* -------------------------------------------------- */
 
-/**
- * Calls the DeepSeek AI model via OpenRouter API to generate content.
- * 
- * @param {string} prompt - The prompt to send to the AI
- * @returns {Promise<string>} AI-generated text response
- * @throws {Error} If API call fails or response is invalid
- * 
- * @example
- * const response = await generateFromDeepSeek("Create a learning plan...");
- */
 async function generateFromDeepSeek(prompt) {
   const response = await fetch(
     "https://openrouter.ai/api/v1/chat/completions",
@@ -224,7 +163,7 @@ async function generateFromDeepSeek(prompt) {
         model: "deepseek/deepseek-chat",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.6,
-        max_tokens: 4000, // optimized for cost
+        max_tokens: 4000,
         response_format: { type: "json_object" }
       })
     }
@@ -253,29 +192,12 @@ async function generateFromDeepSeek(prompt) {
 /* INPUT VALIDATION AND SANITIZATION                 */
 /* -------------------------------------------------- */
 
-/**
- * Validates and sanitizes a goal string.
- * 
- * @param {string} goal - Goal string to validate
- * @returns {Object} Validation result
- * @returns {boolean} returns.valid - Whether goal is valid
- * @returns {string} [returns.sanitized] - Sanitized goal string (if valid)
- * @returns {string} [returns.error] - Error message (if invalid)
- * 
- * @example
- * validateAndSanitizeGoal("Learn React")
- * // { valid: true, sanitized: "Learn React" }
- * 
- * @example
- * validateAndSanitizeGoal("ab")
- * // { valid: false, error: "Goal must be at least 3 characters long" }
- */
+// Validation rules: 3-500 chars, removes injection-prone characters
 function validateAndSanitizeGoal(goal) {
   if (!goal || typeof goal !== 'string') {
     return { valid: false, error: "Goal must be a non-empty string" };
   }
   
-  // Trim whitespace
   const trimmed = goal.trim();
   
   if (trimmed.length === 0) {
@@ -291,26 +213,12 @@ function validateAndSanitizeGoal(goal) {
   }
   
   // Remove potentially dangerous characters for injection prevention
-  // Allow letters, numbers, spaces, and common punctuation
   const sanitized = trimmed.replace(/[<>{}[\]\\]/g, '');
   
   return { valid: true, sanitized: sanitized };
 }
 
-/**
- * Validates and normalizes the days parameter.
- * 
- * @param {number|string} days - Number of days (will be parsed if string)
- * @returns {Object} Validation result
- * @returns {boolean} returns.valid - Whether days value is valid
- * @returns {number} [returns.days] - Validated and capped days value (if valid)
- * @returns {string} [returns.error] - Error message (if invalid)
- * 
- * @example
- * validateDays(30) // { valid: true, days: 30 }
- * validateDays(500) // { valid: true, days: 120 } // capped at 120
- * validateDays(-5) // { valid: false, error: "Days must be at least 1" }
- */
+// Validation rules: 1-365 days, capped at 120 for cost control
 function validateDays(days) {
   const parsed = parseInt(days);
   
@@ -326,7 +234,7 @@ function validateDays(days) {
     return { valid: false, error: "Days cannot exceed 365" };
   }
   
-  // Apply safety cap
+  // Apply safety cap for cost control
   const capped = Math.min(parsed, 120);
   
   return { valid: true, days: capped };
@@ -336,67 +244,7 @@ function validateDays(days) {
 /* MAIN ROUTE                                        */
 /* -------------------------------------------------- */
 
-/**
- * POST /generate-roadmap
- * 
- * Generates a personalized learning/achievement roadmap using AI.
- * Results are cached for 1 hour to improve performance and reduce API costs.
- * 
- * @route POST /generate-roadmap
- * @access Public
- * 
- * @param {Object} req.body - Request body
- * @param {string} req.body.goal - The goal to create a roadmap for (3-500 characters)
- * @param {number} req.body.days - Number of days for the roadmap (1-365, capped at 120)
- * 
- * @returns {Object} 200 - Success response with roadmap data
- * @returns {string} returns.title - Title of the roadmap
- * @returns {number} returns.durationDays - Total duration in days
- * @returns {Array<Object>} returns.days - Array of daily plans
- * @returns {number} returns.days[].day - Day number (1-indexed)
- * @returns {Array<string>} returns.days[].tasks - Array of tasks for the day (max 4 tasks)
- * 
- * @returns {Object} 400 - Bad request (missing or invalid parameters)
- * @returns {string} returns.error - Error type
- * @returns {string} returns.details - Detailed error message
- * 
- * @returns {Object} 500 - Internal server error
- * @returns {string} returns.error - Error type
- * @returns {string} returns.details - Error details (only in development mode)
- * 
- * @example
- * // Request
- * POST /generate-roadmap
- * Content-Type: application/json
- * {
- *   "goal": "Learn React Native",
- *   "days": 30
- * }
- * 
- * @example
- * // Success Response (200)
- * {
- *   "title": "Learn React Native",
- *   "durationDays": 30,
- *   "days": [
- *     {
- *       "day": 1,
- *       "tasks": ["Setup development environment", "Learn JavaScript basics"]
- *     },
- *     {
- *       "day": 2,
- *       "tasks": ["Study React fundamentals", "Build first component"]
- *     }
- *   ]
- * }
- * 
- * @example
- * // Error Response (400)
- * {
- *   "error": "Invalid goal",
- *   "details": "Goal must be at least 3 characters long"
- * }
- */
+// POST /generate-roadmap - Generates AI roadmap, cached for 1 hour
 app.post("/generate-roadmap", async (req, res) => {
   try {
     let { goal, days } = req.body;
@@ -429,8 +277,6 @@ app.post("/generate-roadmap", async (req, res) => {
     }
     days = daysValidation.days;
 
-    /* ---------------- CACHE CHECK ---------------- */
-
     const cacheKey = getCacheKey(goal, days);
 
     const cachedData = getCachedRoadmap(cacheKey);
@@ -440,8 +286,6 @@ app.post("/generate-roadmap", async (req, res) => {
     }
 
     console.log("CACHE MISS → generating roadmap");
-
-    /* ---------------- PROMPT ---------------- */
 
     const prompt = `
     You are an expert goal planner.
@@ -480,12 +324,10 @@ app.post("/generate-roadmap", async (req, res) => {
     }
     `;
 
-
-    /* ---------------- AI CALL + RETRY ---------------- */
-
     let json = null;
     let lastError = null;
 
+    // Retry up to 2 times for AI call, parsing, and validation
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         const text = await generateFromDeepSeek(prompt);
@@ -519,11 +361,7 @@ app.post("/generate-roadmap", async (req, res) => {
       });
     }
 
-    /* ---------------- CACHE STORE ---------------- */
-
     setCachedRoadmap(cacheKey, json);
-
-    /* ---------------- RESPONSE ---------------- */
 
     res.json(json);
 
@@ -538,25 +376,96 @@ app.post("/generate-roadmap", async (req, res) => {
 
 /* -------------------------------------------------- */
 
-/**
- * GET /ping
- * 
- * Health check endpoint to verify server is running.
- * 
- * @route GET /ping
- * @access Public
- * 
- * @returns {string} 200 - Returns "pong" if server is healthy
- * 
- * @example
- * // Request
- * GET /ping
- * 
- * @example
- * // Response (200)
- * pong
- */
-app.get("/ping", (req, res) => res.send("pong"));
+// GET /ping - Health check endpoint
+app.get("/ping", (_req, res) => res.send("pong"));
+
+/* -------------------------------------------------- */
+/* ADJUST ROADMAP ENDPOINT                           */
+/* -------------------------------------------------- */
+
+// POST /adjust-roadmap - Redistributes incomplete tasks across remaining days (max 4 per day)
+app.post("/adjust-roadmap", async (req, res) => {
+  try {
+    const { remainingDays, incompleteTasks, totalRemainingDays } = req.body;
+
+    // Validate input
+    if (!Array.isArray(remainingDays) || !Array.isArray(incompleteTasks)) {
+      return res.status(400).json({
+        error: "Invalid input",
+        details: "remainingDays and incompleteTasks must be arrays"
+      });
+    }
+
+    if (typeof totalRemainingDays !== 'number' || totalRemainingDays < 1) {
+      return res.status(400).json({
+        error: "Invalid totalRemainingDays",
+        details: "totalRemainingDays must be a positive number"
+      });
+    }
+
+    // If no incomplete tasks, return remaining days unchanged
+    if (incompleteTasks.length === 0) {
+      return res.json({ days: remainingDays });
+    }
+
+    // Collect all existing tasks in order
+    const allTasks = [];
+    remainingDays.forEach(day => {
+      if (Array.isArray(day.tasks)) {
+        allTasks.push(...day.tasks);
+      }
+    });
+
+    // Add incomplete tasks at the end (preserving order)
+    allTasks.push(...incompleteTasks);
+
+    // Redistribute tasks across remaining days (max 4 per day)
+    const adjustedDays = [];
+    let taskIndex = 0;
+    const maxTasksPerDay = 4;
+
+    for (let i = 0; i < totalRemainingDays; i++) {
+      const dayNumber = remainingDays[i]?.day || (i + 1);
+      const dayTasks = [];
+
+      // Assign up to maxTasksPerDay tasks
+      while (dayTasks.length < maxTasksPerDay && taskIndex < allTasks.length) {
+        dayTasks.push(allTasks[taskIndex]);
+        taskIndex++;
+      }
+
+      // Only add day if it has tasks
+      if (dayTasks.length > 0) {
+        adjustedDays.push({
+          day: dayNumber,
+          tasks: dayTasks
+        });
+      }
+    }
+
+    // If there are still tasks left, distribute them across existing days
+    if (taskIndex < allTasks.length) {
+      let dayIndex = 0;
+      while (taskIndex < allTasks.length && dayIndex < adjustedDays.length) {
+        if (adjustedDays[dayIndex].tasks.length < maxTasksPerDay) {
+          adjustedDays[dayIndex].tasks.push(allTasks[taskIndex]);
+          taskIndex++;
+        } else {
+          dayIndex++;
+        }
+      }
+    }
+
+    res.json({ days: adjustedDays });
+
+  } catch (err) {
+    console.error("ADJUST ROADMAP ERROR:", err.message);
+    res.status(500).json({
+      error: "Internal server error",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log("Server running on", PORT);
