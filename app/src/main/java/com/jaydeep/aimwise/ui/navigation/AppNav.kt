@@ -77,7 +77,7 @@ fun AppNav(goalViewModel: GoalViewModel){
             val goalId = it.arguments?.getString("goalId") ?: ""
             val day = it.arguments?.getString("day")?.toInt() ?: 0
 
-            SkipActionScreen(goalId, day, navController)
+            SkipActionScreen(goalId, day, navController,goalViewModel)
         }
 
         composable("roadmap/{goalId}") { backStack ->

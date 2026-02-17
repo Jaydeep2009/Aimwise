@@ -16,9 +16,6 @@ import kotlinx.coroutines.tasks.await
 
 /**
  * Repository for managing user authentication with Firebase Auth and Firestore.
- * 
- * Provides both coroutine-based and callback-based authentication methods.
- * The coroutine-based methods (returning Result<T>) are preferred for new code.
  */
 class AuthRepository {
     private val auth= FirebaseAuth.getInstance()
@@ -28,11 +25,7 @@ class AuthRepository {
     fun isUserLoggedIn() : Boolean=auth.currentUser!=null
 
     /**
-     * Authenticates a user with email and password.
-     * 
-     * @param email The user's email address
-     * @param password The user's password
-     * @return Result.Success if login succeeds, Result.Error with exception details if it fails
+     * Authenticates user with email and password.
      */
     suspend fun login(email: String, password: String): Result<Unit> {
         return try {
@@ -44,20 +37,8 @@ class AuthRepository {
     }
 
     /**
-     * Creates a new user account with email and password, then stores user profile in Firestore.
-     * 
-     * This operation performs two steps:
-     * 1. Creates Firebase Auth user with email/password
-     * 2. Creates a user document in Firestore with username and email
-     * 
-     * If the Firestore write fails, the Firebase Auth user is automatically deleted
-     * to maintain data consistency. Implements retry logic for transient failures.
-     * 
-     * @param username The user's display name
-     * @param email The user's email address
-     * @param password The user's password
-     * @return Result.Success if signup succeeds, Result.Error with exception details if it fails
-     * @throws Exception if user creation succeeds but user ID is null (should never happen)
+     * Creates user account and stores profile in Firestore.
+     * If Firestore write fails, auth user is automatically deleted for consistency.
      */
     suspend fun signup(username: String, email: String, password: String): Result<Unit> {
         return RetryUtils.withRetry(
@@ -112,13 +93,7 @@ class AuthRepository {
     }
     
     /**
-     * Gets a fresh Firebase ID token with forced refresh.
-     * 
-     * This ensures the token is valid and not expired, which is critical for backend API calls.
-     * The token is automatically refreshed if it's expired or about to expire.
-     * 
-     * @param forceRefresh If true, forces Firebase to fetch a new token even if cached one is valid
-     * @return The fresh ID token string, or null if user is not authenticated
+     * Gets a fresh Firebase ID token for backend API calls.
      */
     suspend fun getFreshToken(forceRefresh: Boolean = true): String? {
         return try {
@@ -132,9 +107,7 @@ class AuthRepository {
     }
     
     /**
-     * Fetches the username from Firestore for the current user.
-     * 
-     * @return The username string, or null if user is not authenticated or username not found
+     * Fetches username from Firestore for current user.
      */
     suspend fun getUsername(): String? {
         return try {
@@ -151,13 +124,7 @@ class AuthRepository {
     
     /**
      * Signs in with Google using Credential Manager API.
-     * 
-     * Note: This may fail with SecurityException on some devices/emulators due to
-     * Google Play Services compatibility issues. The error "Unknown calling package name"
-     * typically indicates SHA-1 fingerprint mismatch or outdated Play Services.
-     * 
-     * @param context The application context
-     * @return Result.Success if login succeeds, Result.Error with exception details if it fails
+     * Note: May fail with SecurityException due to SHA-1 fingerprint mismatch or Play Services issues.
      */
     suspend fun signInWithGoogle(context: Context): Result<Unit> {
         return try {
@@ -199,59 +166,11 @@ class AuthRepository {
             
             Result.Success(Unit)
         } catch (e: SecurityException) {
-            // SecurityException typically means SHA-1 fingerprint mismatch or Play Services issue
             android.util.Log.e("AuthRepository", "Google Sign-In SecurityException: ${e.message}")
-            android.util.Log.e("AuthRepository", "This usually means:")
-            android.util.Log.e("AuthRepository", "1. SHA-1 fingerprint in Firebase doesn't match your build")
-            android.util.Log.e("AuthRepository", "2. Google Play Services is outdated on this device")
-            android.util.Log.e("AuthRepository", "3. Device/emulator doesn't have proper Play Services")
             Result.Error(Exception("Google sign-in failed: SHA-1 fingerprint mismatch or Play Services issue. Check logs for details."))
         } catch (e: Exception) {
             android.util.Log.e("AuthRepository", "Google Sign-In failed: ${e.message}", e)
             Result.Error(Exception("Google sign-in failed: ${e.message}"))
         }
-    }
-    
-    // Legacy callback-based methods for backward compatibility
-    // TODO: Remove these once AuthViewModel is refactored to use coroutines (Task 9)
-    fun login(email: String, password: String, callback: (Boolean, String?) -> Unit) {
-        auth.signInWithEmailAndPassword(email, password)
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    callback(true, "Login successful")
-                } else {
-                    callback(false, task.exception?.message ?: "Login failed")
-                }
-            }
-    }
-    
-    fun signup(username: String, email: String, password: String, callback: (Boolean, String?) -> Unit) {
-        auth.createUserWithEmailAndPassword(email, password)
-            .addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    val userId = auth.currentUser?.uid
-                    if (userId != null) {
-                        val userMap = hashMapOf(
-                            "username" to username,
-                            "email" to email
-                        )
-                        firestore.collection("users")
-                            .document(userId)
-                            .set(userMap)
-                            .addOnSuccessListener {
-                                callback(true, "Signup successful")
-                            }
-                            .addOnFailureListener { e ->
-                                // Clean up auth user if Firestore write fails
-                                auth.currentUser?.delete()
-                                callback(false, "Failed to create user profile: ${e.message}")
-                            }
-                    } else {
-                        callback(false, "User creation succeeded but user ID is null")
-                    }
-                } else {
-                    callback(false, task.exception?.message ?: "Signup failed")
-                }
-            }
     }
 }

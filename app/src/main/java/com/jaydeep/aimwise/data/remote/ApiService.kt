@@ -11,6 +11,21 @@ data class RoadmapRequest(
     val days: Int
 )
 
+data class AdjustRoadmapRequest(
+    val remainingDays: List<DayPlanDto>,
+    val incompleteTasks: List<String>,
+    val totalRemainingDays: Int
+)
+
+data class DayPlanDto(
+    val day: Int,
+    val tasks: List<String>
+)
+
+data class AdjustRoadmapResponse(
+    val days: List<DayPlanDto>
+)
+
 interface ApiService {
 
     @POST("generate-roadmap")
@@ -18,5 +33,9 @@ interface ApiService {
         @Body request: RoadmapRequest
     ): Response<RoadmapResponse>
 
+    @POST("adjust-roadmap")
+    suspend fun adjustRoadmap(
+        @Body request: AdjustRoadmapRequest
+    ): Response<AdjustRoadmapResponse>
 
 }

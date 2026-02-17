@@ -16,20 +16,7 @@ import kotlinx.coroutines.tasks.await
 /**
  * Repository for managing goals and roadmaps with Firestore.
  * 
- * FIRESTORE INDEXES REQUIRED:
- * For optimal query performance, create the following composite indexes in Firebase Console:
- * 
- * Collection: users/{userId}/goals
- * - Index: createdAt (Descending)
- *   This index supports the getGoals() query with orderBy and limit
- * 
- * To create indexes:
- * 1. Go to Firebase Console > Firestore Database > Indexes
- * 2. Click "Create Index"
- * 3. Add the fields and directions as specified above
- * 
- * Note: Single-field indexes are created automatically by Firestore.
- * Composite indexes (multiple fields) must be created manually.
+ * FIRESTORE INDEX REQUIRED: users/{userId}/goals - createdAt (Descending)
  */
 class GoalRepository {
 
@@ -41,7 +28,6 @@ class GoalRepository {
 
     /**
      * Gets the reference to the current user's goals collection.
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
      */
     private fun userGoalsRef() =
         auth.currentUser?.uid?.let { uid ->
@@ -57,10 +43,7 @@ class GoalRepository {
 
     /**
      * Calculates the current day number based on calendar days (midnight to midnight).
-     * 
-     * @param createdAt The timestamp when the goal was created
-     * @param durationDays The total duration of the goal in days
-     * @return The current day number (1-indexed), capped at durationDays
+     * Day 1 starts at goal creation, increments at midnight, capped at durationDays.
      */
     private fun calculateCurrentDay(createdAt: Long, durationDays: Int): Int {
         val calendar = java.util.Calendar.getInstance()
@@ -88,18 +71,16 @@ class GoalRepository {
         val daysSinceCreation = ((todayStart - createdDayStart) / (1000 * 60 * 60 * 24)).toInt() + 1
         
         // Cap at duration days
-        return minOf(daysSinceCreation, durationDays)
+        val calculatedDay = minOf(daysSinceCreation, durationDays)
+        
+        android.util.Log.d("GoalRepository", "calculateCurrentDay: createdAt=${java.util.Date(createdAt)}, today=${java.util.Date(System.currentTimeMillis())}, daysSince=$daysSinceCreation, capped=$calculatedDay")
+        
+        return calculatedDay
     }
 
     /**
-     * Retrieves all goals for the currently authenticated user.
-     * 
-     * Goals are ordered by creation date (newest first) and limited to 50 results
-     * to prevent excessive data transfer and improve performance.
-     * 
-     * @return List of Goal objects for the current user
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
-     * @throws Exception if the Firestore query fails after retry attempts
+     * Retrieves all goals for the current user, ordered by creation date (newest first).
+     * Auto-syncs currentDay based on calendar date.
      */
     suspend fun getGoals(): List<Goal> {
         val result = RetryUtils.withRetry {
@@ -132,13 +113,25 @@ class GoalRepository {
                         .await()
                 }
                 
+                // Load completion data for this goal
+                val (completedTasks, totalTasks) = getGoalTaskCompletion(doc.id)
+                
+                // Load today's task data
+                val todayPlan = getDayPlan(doc.id, calculatedDay)
+                val todayCompletedTasks = todayPlan?.tasks?.count { it.isCompleted } ?: 0
+                val todayTotalTasks = todayPlan?.tasks?.size ?: 0
+                
                 Goal(
                     id = doc.id,
                     title = doc.getString("title") ?: "",
                     durationDays = durationDays,
                     currentDay = calculatedDay, // Use calculated day, not stored
                     createdAt = createdAt,
-                    roadmap = doc.getString("roadmap") ?: ""
+                    roadmap = doc.getString("roadmap") ?: "",
+                    completedTasks = completedTasks,
+                    totalTasks = totalTasks,
+                    todayCompletedTasks = todayCompletedTasks,
+                    todayTotalTasks = todayTotalTasks
                 )
             }
         }
@@ -150,11 +143,7 @@ class GoalRepository {
         }
     }
     /**
-     * Retrieves a specific goal by its ID.
-     * 
-     * @param goalId The unique identifier of the goal to retrieve
-     * @return Result.Success containing the Goal if found, or Result.Error if not found or an error occurs
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
+     * Retrieves a specific goal by ID. Auto-syncs currentDay based on calendar date.
      */
     suspend fun getGoal(goalId: String): Result<Goal> {
         return RetryUtils.withRetry {
@@ -199,72 +188,7 @@ class GoalRepository {
         }
     }
     /**
-     * Fetches the day plan for a specific day of a goal.
-     * 
-     * Converts Firestore's separate task and completed lists into a unified Task object list.
-     * 
-     * @param goalId The unique identifier of the goal
-     * @param day The day number to retrieve (1-indexed)
-     * @return DayPlan object if found, null if the day doesn't exist
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
-     * @throws Exception if the Firestore query fails after retry attempts
-     */
-    suspend fun getDay(goalId: String, day: Int): DayPlan? {
-        val result = RetryUtils.withRetry {
-            val uid = auth.currentUser?.uid 
-                ?: throw UserNotAuthenticatedException("User not authenticated")
-
-            val dayRef = firestore.collection("users")
-                .document(uid)
-                .collection("goals")
-                .document(goalId)
-                .collection("days")
-                .document(day.toString())
-
-            val daySnap = dayRef.get().await()
-
-            if (!daySnap.exists()) return@withRetry null
-
-            val taskDescriptions = daySnap.get("tasks") as? List<String> ?: emptyList()
-            val completedStates = daySnap.get("completed") as? List<Boolean> ?: emptyList()
-            val status = daySnap.getString("status") ?: "pending"
-
-            // Convert separate lists to Task objects
-            val tasks = taskDescriptions.mapIndexed { index, description ->
-                Task(
-                    description = description,
-                    isCompleted = completedStates.getOrElse(index) { false }
-                )
-            }
-
-            DayPlan(
-                day = day,
-                tasks = tasks,
-                status = status
-            )
-        }
-        
-        return when (result) {
-            is Result.Success -> result.data
-            is Result.Error -> throw result.exception
-            is Result.Loading -> null
-        }
-    }
-
-
-
-
-
-    /**
-     * Generates a personalized roadmap using AI for the specified goal.
-     * 
-     * Makes a network request to the backend API which uses AI to create a day-by-day
-     * learning plan. Implements retry logic with exponential backoff for network failures.
-     * 
-     * @param goal The goal description (e.g., "Learn Data Structures and Algorithms")
-     * @param days The number of days for the roadmap (typically 30-90 days)
-     * @return Result.Success containing RoadmapResponse with daily tasks, or Result.Error on failure
-     * @throws Exception if the API request fails after all retry attempts
+     * Generates a personalized roadmap using AI. Implements retry logic with exponential backoff.
      */
     suspend fun generateRoadmap(goal: String, days: Int): Result<RoadmapResponse> {
         return RetryUtils.withRetry(
@@ -297,16 +221,7 @@ class GoalRepository {
     }
 
     /**
-     * Saves a newly generated goal and all its daily plans to Firestore.
-     * 
-     * This is a transactional operation that:
-     * 1. Creates the goal document with metadata
-     * 2. Creates a subcollection of day documents with tasks
-     * 
-     * @param goalTitle The user-provided title for the goal
-     * @param roadmap The AI-generated roadmap containing daily plans
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
-     * @throws Exception if any Firestore write operation fails after retry attempts
+     * Saves a goal and its daily plans to Firestore.
      */
     suspend fun saveGoalWithDays(
         goalTitle: String,
@@ -350,17 +265,13 @@ class GoalRepository {
 
 
     /**
-     * Checks if the user has missed a day and needs to make an adjustment decision.
-     * 
-     * Compares the current calendar day with the user's progress to detect if they
-     * skipped a day without completing it. If a missed day is detected, sets the
-     * pendingAdjustment flag and stores the missed day number.
-     * 
-     * @param goalId The unique identifier of the goal to check
-     * @return The day number that was missed, or null if no day was missed or adjustment is already pending
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
+     * Checks if the user missed a day by comparing calendar day with progress.
+     * Sets pendingAdjustment flag if a day was skipped without completion.
      */
     suspend fun checkForMissedDay(goalId: String): Int? {
+        android.util.Log.d("GoalRepository", "=== CHECKING FOR MISSED DAY ===")
+        android.util.Log.d("GoalRepository", "Goal ID: $goalId")
+        
         val uid = auth.currentUser?.uid 
             ?: throw UserNotAuthenticatedException("User not authenticated")
             
@@ -371,28 +282,89 @@ class GoalRepository {
 
         val goalSnap = goalRef.get().await()
 
-        val startDate = goalSnap.getLong("createdAt") ?: return null
+        val startDate = goalSnap.getLong("createdAt") ?: run {
+            android.util.Log.w("GoalRepository", "No createdAt found for goal")
+            return null
+        }
         val currentDay = goalSnap.getLong("currentDay")?.toInt() ?: 1
         val durationDays = goalSnap.getLong("durationDays")?.toInt() ?: 30
         val pending = goalSnap.getBoolean("pendingAdjustment") ?: false
 
+        android.util.Log.d("GoalRepository", "Start Date: $startDate (${java.util.Date(startDate)})")
+        android.util.Log.d("GoalRepository", "Current Day: $currentDay")
+        android.util.Log.d("GoalRepository", "Duration Days: $durationDays")
+        android.util.Log.d("GoalRepository", "Pending Adjustment: $pending")
+
         // already pending → return stored missed day
         if (pending) {
-            return goalSnap.getLong("lastMissedDay")?.toInt()
+            val missedDay = goalSnap.getLong("lastMissedDay")?.toInt()
+            android.util.Log.d("GoalRepository", "Already pending adjustment for day: $missedDay")
+            return missedDay
         }
 
         // Use calendar-based day calculation
         val today = calculateCurrentDay(startDate, durationDays)
+        android.util.Log.d("GoalRepository", "Calculated Today: Day $today")
 
+        // Check for incomplete tasks from previous days (days 1 to currentDay-1)
+        // IMPORTANT: Skip days that are already marked as "completed" or "skipped"
+        android.util.Log.d("GoalRepository", "Checking for incomplete tasks from previous days (1 to ${currentDay - 1})")
+        
+        for (day in 1 until currentDay) {
+            val dayRef = goalRef.collection("days").document(day.toString())
+            val daySnap = dayRef.get().await()
+            
+            if (daySnap.exists()) {
+                val status = daySnap.getString("status") ?: "pending"
+                
+                android.util.Log.d("GoalRepository", "Day $day: status=$status")
+                
+                // Skip this day if it's already completed or skipped
+                if (status == "completed" || status == "skipped") {
+                    android.util.Log.d("GoalRepository", "Day $day is $status - skipping check")
+                    continue
+                }
+                
+                val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
+                val completed = daySnap.get("completed") as? List<Boolean> ?: emptyList()
+                
+                // Check if there are any incomplete tasks
+                val hasIncompleteTasks = tasks.indices.any { index ->
+                    !completed.getOrElse(index) { false }
+                }
+                
+                android.util.Log.d("GoalRepository", "Day $day: hasIncompleteTasks=$hasIncompleteTasks")
+                
+                if (hasIncompleteTasks) {
+                    android.util.Log.d("GoalRepository", "✅ Found incomplete tasks on day $day - setting pending adjustment")
+                    
+                    goalRef.update(
+                        mapOf(
+                            "pendingAdjustment" to true,
+                            "lastMissedDay" to day
+                        )
+                    ).await()
+                    
+                    android.util.Log.d("GoalRepository", "✅ Returning missed day: $day")
+                    return day
+                }
+            }
+        }
+
+        // Check if calendar day is ahead of current progress day
         if (today > currentDay) {
+            android.util.Log.d("GoalRepository", "Missed day detected! Today ($today) > Current Day ($currentDay)")
 
             val dayRef = goalRef.collection("days")
                 .document(currentDay.toString())
 
             val daySnap = dayRef.get().await()
             val status = daySnap.getString("status") ?: "pending"
+            
+            android.util.Log.d("GoalRepository", "Day $currentDay status: $status")
 
             if (status != "completed") {
+                android.util.Log.d("GoalRepository", "Day $currentDay is not completed - setting pending adjustment")
 
                 goalRef.update(
                     mapOf(
@@ -401,20 +373,50 @@ class GoalRepository {
                     )
                 ).await()
 
+                android.util.Log.d("GoalRepository", "✅ Returning missed day: $currentDay")
                 return currentDay   // 🔥 return missed day
+            } else {
+                android.util.Log.d("GoalRepository", "Day $currentDay was completed - no missed day")
             }
+        } else {
+            android.util.Log.d("GoalRepository", "No missed day - user is on track (Today: $today, Current: $currentDay)")
         }
 
+        android.util.Log.d("GoalRepository", "=== NO MISSED DAY DETECTED ===")
         return null   // no missed day
     }
 
 
     /**
+     * Gets the incomplete tasks from a specific day.
+     */
+    suspend fun getIncompleteTasks(goalId: String, day: Int): List<String> {
+        val uid = auth.currentUser?.uid 
+            ?: throw UserNotAuthenticatedException("User not authenticated")
+            
+        val dayRef = firestore.collection("users")
+            .document(uid)
+            .collection("goals")
+            .document(goalId)
+            .collection("days")
+            .document(day.toString())
+        
+        val daySnap = dayRef.get().await()
+        
+        if (!daySnap.exists()) {
+            return emptyList()
+        }
+        
+        val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
+        val completed = daySnap.get("completed") as? List<Boolean> ?: emptyList()
+        
+        return tasks.filterIndexed { index, _ ->
+            !completed.getOrElse(index) { false }
+        }
+    }
+
+    /**
      * Checks if there is a pending adjustment decision for a missed day.
-     * 
-     * @param goalId The unique identifier of the goal
-     * @return true if the user needs to decide how to handle a missed day, false otherwise
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
      */
     suspend fun isAdjustmentPending(goalId: String): Boolean {
         val uid = auth.currentUser?.uid 
@@ -432,17 +434,7 @@ class GoalRepository {
 
     /**
      * Resolves a missed day by applying the user's chosen adjustment strategy.
-     * 
-     * Available actions:
-     * - "AUTO": Automatically redistribute tasks (not yet implemented)
-     * - "EXTEND": Add 3 extra days to the goal duration
-     * - "INCREASE": Increase daily task load (not yet implemented)
-     * 
-     * After applying the action, clears the pendingAdjustment flag.
-     * 
-     * @param goalId The unique identifier of the goal
-     * @param action The adjustment strategy chosen by the user
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
+     * Actions: SKIP (leave unchanged), MARK_COMPLETED, ADJUST_ROADMAP (redistribute tasks), EXTEND (add 3 days).
      */
     suspend fun resolveSkipAction(goalId: String, action: String) {
         val uid = auth.currentUser?.uid 
@@ -454,36 +446,207 @@ class GoalRepository {
             .document(goalId)
 
         when (action) {
+            "SKIP" -> {
+                // Leave roadmap unchanged, mark the day as skipped so it doesn't trigger again
+                android.util.Log.d("GoalRepository", "SKIP: Marking day as skipped")
+                
+                val missedDay = goalRef.get().await().getLong("lastMissedDay")?.toInt()
+                if (missedDay != null) {
+                    goalRef.collection("days")
+                        .document(missedDay.toString())
+                        .update("status", "skipped")
+                        .await()
+                    android.util.Log.d("GoalRepository", "SKIP: Marked day $missedDay as skipped")
+                }
+            }
 
-            "AUTO" -> {
-                // later: redistribute tasks
+            "MARK_COMPLETED" -> {
+                // Mark all tasks in the missed day as completed
+                android.util.Log.d("GoalRepository", "MARK_COMPLETED: Marking all tasks as completed")
+                
+                val goalSnap = goalRef.get().await()
+                val missedDay = goalSnap.getLong("lastMissedDay")?.toInt()
+                
+                android.util.Log.d("GoalRepository", "MARK_COMPLETED: missedDay=$missedDay")
+                
+                if (missedDay != null) {
+                    val dayRef = goalRef.collection("days").document(missedDay.toString())
+                    val daySnap = dayRef.get().await()
+                    
+                    val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
+                    
+                    android.util.Log.d("GoalRepository", "MARK_COMPLETED: Marking ${tasks.size} tasks as completed")
+                    
+                    // Mark all tasks as completed
+                    val allCompleted = List(tasks.size) { true }
+                    
+                    dayRef.update(
+                        mapOf(
+                            "completed" to allCompleted,
+                            "status" to "completed"
+                        )
+                    ).await()
+                    
+                    android.util.Log.d("GoalRepository", "MARK_COMPLETED: Successfully marked day $missedDay as completed")
+                } else {
+                    android.util.Log.w("GoalRepository", "MARK_COMPLETED: missedDay is null, cannot proceed")
+                }
+            }
+
+            "ADJUST_ROADMAP" -> {
+                // Redistribute incomplete tasks from missed days across remaining days
+                android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Starting task redistribution")
+                
+                val goalSnap = goalRef.get().await()
+                val currentDay = goalSnap.getLong("currentDay")?.toInt() ?: 1
+                val durationDays = goalSnap.getLong("durationDays")?.toInt() ?: 30
+                val missedDay = goalSnap.getLong("lastMissedDay")?.toInt()
+                
+                android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: currentDay=$currentDay, durationDays=$durationDays, missedDay=$missedDay")
+                
+                // Collect incomplete tasks from missed days
+                val incompleteTasks = mutableListOf<String>()
+                if (missedDay != null) {
+                    android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Checking days from $missedDay to ${currentDay - 1}")
+                    
+                    for (day in missedDay until currentDay) {
+                        val daySnap = goalRef.collection("days")
+                            .document(day.toString())
+                            .get()
+                            .await()
+                        
+                        val status = daySnap.getString("status")
+                        android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Day $day status: $status")
+                        
+                        if (status != "completed") {
+                            val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
+                            val completed = daySnap.get("completed") as? List<Boolean> ?: emptyList()
+                            
+                            android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Day $day has ${tasks.size} total tasks")
+                            
+                            // Add only incomplete tasks
+                            tasks.forEachIndexed { index, task ->
+                                if (!completed.getOrElse(index) { false }) {
+                                    incompleteTasks.add(task)
+                                    android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Adding incomplete task from day $day: $task")
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    android.util.Log.w("GoalRepository", "ADJUST_ROADMAP: missedDay is null")
+                }
+                
+                android.util.Log.d("GoalRepository", "Found ${incompleteTasks.size} incomplete tasks to redistribute")
+                
+                // Only proceed if there are incomplete tasks
+                if (incompleteTasks.isNotEmpty()) {
+                    // Collect remaining days starting from currentDay (not missed days)
+                    // We only redistribute incomplete tasks + future day tasks
+                    val remainingDays = mutableListOf<com.jaydeep.aimwise.data.remote.DayPlanDto>()
+                    
+                    for (day in currentDay..durationDays) {
+                        val daySnap = goalRef.collection("days")
+                            .document(day.toString())
+                            .get()
+                            .await()
+                        
+                        if (daySnap.exists()) {
+                            val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
+                            remainingDays.add(
+                                com.jaydeep.aimwise.data.remote.DayPlanDto(
+                                    day = day,
+                                    tasks = tasks
+                                )
+                            )
+                            android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Collected day $day with ${tasks.size} tasks")
+                        }
+                    }
+                    
+                    val totalRemainingDays = durationDays - currentDay + 1
+                    
+                    android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Calling API with ${remainingDays.size} remaining days, ${incompleteTasks.size} incomplete tasks, totalRemainingDays=$totalRemainingDays")
+                    
+                    // Call API to adjust roadmap
+                    val adjustRequest = com.jaydeep.aimwise.data.remote.AdjustRoadmapRequest(
+                        remainingDays = remainingDays,
+                        incompleteTasks = incompleteTasks,
+                        totalRemainingDays = totalRemainingDays
+                    )
+                    
+                    try {
+                        val response = RetrofitInstance.api.adjustRoadmap(adjustRequest)
+                        
+                        android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: API response code: ${response.code()}")
+                        
+                        if (response.isSuccessful && response.body() != null) {
+                            val adjustedDays = response.body()!!.days
+                            
+                            android.util.Log.d("GoalRepository", "Received ${adjustedDays.size} adjusted days from API")
+                            
+                            // Update Firestore with adjusted days
+                            adjustedDays.forEach { dayDto ->
+                                android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Updating day ${dayDto.day} with ${dayDto.tasks.size} tasks")
+                                
+                                val dayData = hashMapOf(
+                                    "dayNumber" to dayDto.day,
+                                    "tasks" to dayDto.tasks,
+                                    "completed" to List(dayDto.tasks.size) { false },
+                                    "status" to "pending"
+                                )
+                                
+                                goalRef.collection("days")
+                                    .document(dayDto.day.toString())
+                                    .set(dayData)
+                                    .await()
+                            }
+                            
+                            // Mark missed days as skipped
+                            if (missedDay != null) {
+                                android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Marking days $missedDay to ${currentDay - 1} as skipped")
+                                for (day in missedDay until currentDay) {
+                                    goalRef.collection("days")
+                                        .document(day.toString())
+                                        .update("status", "skipped")
+                                        .await()
+                                }
+                            }
+                            
+                            android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Successfully redistributed tasks")
+                        } else {
+                            val errorBody = response.errorBody()?.string()
+                            android.util.Log.e("GoalRepository", "ADJUST_ROADMAP: API error - code: ${response.code()}, message: ${response.message()}, body: $errorBody")
+                            throw Exception("Failed to adjust roadmap: ${response.code()} - ${response.message()}")
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("GoalRepository", "ADJUST_ROADMAP: Exception calling API: ${e.message}", e)
+                        throw e
+                    }
+                } else {
+                    android.util.Log.d("GoalRepository", "No incomplete tasks to redistribute")
+                }
             }
 
             "EXTEND" -> {
-                goalRef.update("durationDays", FieldValue.increment(3)).await()
-            }
-
-            "INCREASE" -> {
-                // later: increase daily load
+                // Legacy option: Add 3 extra days
+                goalRef.update("durationDays", com.google.firebase.firestore.FieldValue.increment(3)).await()
+                android.util.Log.d("GoalRepository", "EXTEND: Added 3 days to duration")
             }
         }
 
-        goalRef.update("pendingAdjustment", false).await()
+        android.util.Log.d("GoalRepository", "Clearing pendingAdjustment and lastMissedDay flags for goal: $goalId")
+        goalRef.update(
+            mapOf(
+                "pendingAdjustment" to false,
+                "lastMissedDay" to null
+            )
+        ).await()
+        android.util.Log.d("GoalRepository", "✅ Successfully cleared adjustment flags")
     }
 
 
     /**
-     * Toggles the completion status of a specific task in the current day's plan.
-     * 
-     * Uses a Firestore transaction to ensure atomic updates and prevent race conditions
-     * when multiple clients modify the same task simultaneously. Includes comprehensive
-     * error handling for invalid indices and data format issues.
-     * 
-     * @param goalId The unique identifier of the goal
-     * @param index The zero-based index of the task to toggle
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
-     * @throws IndexOutOfBoundsException if the index is invalid
-     * @throws Exception if the transaction fails or data format is invalid
+     * Toggles task completion status. Uses Firestore transaction to ensure atomic updates.
      */
     suspend fun toggleTask(goalId: String, index: Int) {
         val result = RetryUtils.withRetry {
@@ -533,15 +696,6 @@ class GoalRepository {
 
     /**
      * Marks the current day as completed and advances to the next day.
-     * 
-     * This operation:
-     * 1. Updates the day's status to "completed"
-     * 2. Increments the goal's currentDay counter
-     * 3. Invalidates the cache for the completed day
-     * 
-     * @param goalId The unique identifier of the goal
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
-     * @throws Exception if the Firestore update fails after retry attempts
      */
     suspend fun completeDay(goalId: String) {
         val result = RetryUtils.withRetry {
@@ -579,14 +733,7 @@ class GoalRepository {
 
 
     /**
-     * Calculates which day the user should be on based on the goal's creation date.
-     * 
-     * Compares the current date with the goal's start date to determine the calendar day,
-     * capped at the goal's total duration to prevent going beyond the planned days.
-     * 
-     * @param goalId The unique identifier of the goal
-     * @return The day number (1-indexed) that the user should be working on today
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
+     * Calculates which day the user should be on based on calendar date, capped at goal duration.
      */
     suspend fun getTodayDay(goalId: String): Int {
         val uid = auth.currentUser?.uid 
@@ -608,14 +755,6 @@ class GoalRepository {
 
     /**
      * Retrieves the plan for a specific day of a goal.
-     * 
-     * Converts Firestore's storage format (separate task and completed lists) into
-     * the app's Task object format for easier manipulation.
-     * 
-     * @param goalId The unique identifier of the goal
-     * @param day The day number to retrieve (1-indexed)
-     * @return DayPlan object if found, null if the day doesn't exist
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
      */
     suspend fun getDayPlan(goalId: String, day: Int): DayPlan? {
         val uid = auth.currentUser?.uid 
@@ -647,10 +786,6 @@ class GoalRepository {
 
     /**
      * Calculates the total task completion percentage for a goal.
-     * 
-     * @param goalId The unique identifier of the goal
-     * @return Pair of (completed tasks count, total tasks count)
-     * @throws UserNotAuthenticatedException if no user is currently authenticated
      */
     suspend fun getGoalTaskCompletion(goalId: String): Pair<Int, Int> {
         val uid = auth.currentUser?.uid 

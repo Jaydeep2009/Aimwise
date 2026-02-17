@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
@@ -81,20 +80,18 @@ class DailyTaskReminderWorker(
         Log.d(TAG, "Creating notification")
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-        // Create notification channel for Android O and above
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "Daily Task Reminders",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Reminders for incomplete daily tasks"
-                enableVibration(true)
-                enableLights(true)
-            }
-            notificationManager.createNotificationChannel(channel)
-            Log.d(TAG, "Notification channel created")
+        // Create notification channel (minSdk is 30, so always available)
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Daily Task Reminders",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Reminders for incomplete daily tasks"
+            enableVibration(true)
+            enableLights(true)
         }
+        notificationManager.createNotificationChannel(channel)
+        Log.d(TAG, "Notification channel created")
 
         // Create intent to open MainActivity
         val intent = Intent(applicationContext, MainActivity::class.java).apply {
@@ -133,12 +130,8 @@ class DailyTaskReminderWorker(
         notificationManager.notify(NOTIFICATION_ID, notification)
         Log.d(TAG, "Notification sent with ID: $NOTIFICATION_ID")
         
-        // Verify notification was posted
-        val activeNotifications = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            notificationManager.activeNotifications
-        } else {
-            emptyArray()
-        }
+        // Verify notification was posted (minSdk is 30, so activeNotifications always available)
+        val activeNotifications = notificationManager.activeNotifications
         Log.d(TAG, "Active notifications count: ${activeNotifications.size}")
     }
 

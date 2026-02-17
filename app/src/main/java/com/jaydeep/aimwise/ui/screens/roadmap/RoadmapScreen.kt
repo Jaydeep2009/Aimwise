@@ -45,7 +45,12 @@ fun RoadmapScreen(
     viewModel: GoalViewModel,
 ) {
     LaunchedEffect(goalId) {
+        android.util.Log.d("RoadmapScreen", "=== LaunchedEffect triggered for goal: $goalId ===")
         viewModel.loadRoadmap(goalId)
+        
+        // Add a delay to allow Firestore updates to propagate
+        kotlinx.coroutines.delay(1000)
+        
         viewModel.checkMissedDay(goalId)
     }
 
@@ -54,6 +59,8 @@ fun RoadmapScreen(
     val pending by viewModel.pendingAdjustment.collectAsState()
     val missedDay by viewModel.missedDay.collectAsState()
     val day by viewModel.currentDay.collectAsState()
+    
+    android.util.Log.d("RoadmapScreen", "Recomposition - pending: $pending, missedDay: $missedDay")
 
     // Get goal title for TopAppBar
     val goalTitle by remember {
@@ -64,8 +71,11 @@ fun RoadmapScreen(
 
     // 🚨 skip block
     if (pending && missedDay != null) {
-        SkipActionScreen(goalId, missedDay!!, navController)
+        android.util.Log.d("RoadmapScreen", "✅ Showing SkipActionScreen for day: $missedDay")
+        SkipActionScreen(goalId, missedDay!!, navController, viewModel)
         return
+    } else {
+        android.util.Log.d("RoadmapScreen", "Not showing SkipActionScreen - pending: $pending, missedDay: $missedDay")
     }
 
     Scaffold(

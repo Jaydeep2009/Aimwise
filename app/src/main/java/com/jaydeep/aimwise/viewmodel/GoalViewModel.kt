@@ -53,10 +53,6 @@ class GoalViewModel(
     private val _currentDay = MutableStateFlow<Int?>(null)
     val currentDay: StateFlow<Int?> = _currentDay
 
-
-    private val dayCache = mutableMapOf<String, DayPlan>()
-
-
     /**
      * Resets all state flows to their initial values.
      * 
@@ -89,14 +85,25 @@ class GoalViewModel(
      * @param goalId The unique identifier of the goal to check
      */
     fun checkMissedDay(goalId: String) {
+        android.util.Log.d("GoalViewModel", "=== checkMissedDay called for goal: $goalId ===")
         viewModelScope.launch {
-            val day = repo.checkForMissedDay(goalId)
+            try {
+                val day = repo.checkForMissedDay(goalId)
+                
+                android.util.Log.d("GoalViewModel", "checkForMissedDay returned: $day")
 
-            if (day != null) {
-                _pendingAdjustment.value = true
-                _missedDay.value = day
-            } else {
-                _pendingAdjustment.value = false
+                if (day != null) {
+                    android.util.Log.d("GoalViewModel", "✅ Setting pendingAdjustment=true, missedDay=$day")
+                    _pendingAdjustment.value = true
+                    _missedDay.value = day
+                } else {
+                    android.util.Log.d("GoalViewModel", "No missed day - setting pendingAdjustment=false")
+                    _pendingAdjustment.value = false
+                }
+                
+                android.util.Log.d("GoalViewModel", "Current state - pendingAdjustment: ${_pendingAdjustment.value}, missedDay: ${_missedDay.value}")
+            } catch (e: Exception) {
+                android.util.Log.e("GoalViewModel", "Error checking missed day: ${e.message}", e)
             }
         }
     }
@@ -257,32 +264,46 @@ class GoalViewModel(
     }
 
     /**
+     * Gets incomplete tasks from a specific day.
+     */
+    suspend fun getIncompleteTasks(goalId: String, day: Int): List<String> {
+        return repo.getIncompleteTasks(goalId, day)
+    }
+
+    /**
      * Applies the user's chosen adjustment strategy for a missed day.
      * 
      * After resolving, clears the pendingAdjustment and missedDay states
      * so the adjustment dialog is dismissed.
      * 
      * @param goalId The unique identifier of the goal
-     * @param action The adjustment strategy: "AUTO", "EXTEND", or "INCREASE"
+     * @param action The adjustment strategy: "SKIP", "MARK_COMPLETED", "ADJUST_ROADMAP", or "EXTEND"
      */
     fun resolveSkip(goalId: String, action: String) {
+        android.util.Log.d("GoalViewModel", "=== resolveSkip called ===")
+        android.util.Log.d("GoalViewModel", "Goal ID: $goalId, Action: $action")
+        
         viewModelScope.launch {
-            repo.resolveSkipAction(goalId, action)
-
-            _pendingAdjustment.value = false
-            _missedDay.value = null
+            try {
+                repo.resolveSkipAction(goalId, action)
+                android.util.Log.d("GoalViewModel", "✅ resolveSkipAction completed successfully")
+                
+                // Reload the roadmap to get updated data
+                android.util.Log.d("GoalViewModel", "Reloading roadmap after action")
+                loadRoadmap(goalId)
+            } catch (e: Exception) {
+                android.util.Log.e("GoalViewModel", "❌ Error resolving skip action: ${e.message}", e)
+            } finally {
+                // Always clear the state, even if there was an error
+                _pendingAdjustment.value = false
+                _missedDay.value = null
+                android.util.Log.d("GoalViewModel", "Cleared pending adjustment state in finally block")
+            }
         }
     }
 
     /**
      * Loads the roadmap for a specific goal, including goal details and today's plan.
-     * 
-     * Implements a multi-step loading process:
-     * 1. Resets state to clear previous data
-     * 2. Checks cache for instant display (if available)
-     * 3. Fetches goal details from Firestore
-     * 4. Calculates which day the user should be on
-     * 5. Loads the day plan and updates cache
      * 
      * Updates goalState, dayPlanState, and currentDay as data becomes available.
      * 
@@ -292,13 +313,6 @@ class GoalViewModel(
         viewModelScope.launch {
             resetState()
 
-            // 🟢 instant cache (if exists)
-            val cached = dayCache[goalId]
-            if (cached != null) {
-                _dayPlanState.value = ViewState.Success(cached)
-            }
-
-            // 🟢 fetch goal
             val goalResult = repo.getGoal(goalId)
             when (goalResult) {
                 is com.jaydeep.aimwise.data.model.Result.Success -> {
@@ -312,25 +326,17 @@ class GoalViewModel(
                     )
                     return@launch
                 }
-                is com.jaydeep.aimwise.data.model.Result.Loading -> {
-                    // Loading state already set
-                }
+                is com.jaydeep.aimwise.data.model.Result.Loading -> {}
             }
 
-            // 🟢 calculate today
             val todayDay = repo.getTodayDay(goalId)
             _currentDay.value = todayDay
 
-            // 🟢 fetch day from DB
             val dayPlan = repo.getDayPlan(goalId, todayDay)
-            if (dayPlan != null) {
-                _dayPlanState.value = ViewState.Success(dayPlan)
-                dayCache[goalId] = dayPlan   // cache it
+            _dayPlanState.value = if (dayPlan != null) {
+                ViewState.Success(dayPlan)
             } else {
-                _dayPlanState.value = ViewState.Error(
-                    message = "Day plan not found",
-                    throwable = null
-                )
+                ViewState.Error(message = "Day plan not found", throwable = null)
             }
         }
     }
@@ -364,7 +370,6 @@ class GoalViewModel(
 
         // 🔥 instant UI update (optimistic)
         _dayPlanState.value = ViewState.Success(updated)
-        dayCache[goalId] = updated
 
         // 🔵 background firestore sync with rollback on failure
         viewModelScope.launch {
@@ -376,7 +381,6 @@ class GoalViewModel(
                 // 🔴 Rollback on failure - restore previous state
                 e.printStackTrace()
                 _dayPlanState.value = ViewState.Success(current)
-                dayCache[goalId] = current
             }
         }
     }

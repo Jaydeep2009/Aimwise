@@ -57,17 +57,13 @@ fun HomeScreen(navController: NavHostController, goalViewModel: GoalViewModel) {
     val authRepository = remember { AuthRepository() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // Fetch username from Firestore
-    LaunchedEffect(FirebaseAuth.getInstance().currentUser?.uid) {
-        username = authRepository.getUsername()
-    }
-
-    // Reload goals when user changes
+    // Fetch username and reload goals when user changes
     LaunchedEffect(FirebaseAuth.getInstance().currentUser?.uid) {
         val user = FirebaseAuth.getInstance().currentUser
         Log.d("HOME_SCREEN", "User changed: ${user?.uid}")
 
         if (user != null) {
+            username = authRepository.getUsername()
             delay(300)
             goalViewModel.loadGoals()
         }
@@ -280,34 +276,9 @@ fun GoalCard(
     goalViewModel: GoalViewModel,
     onClick: () -> Unit
 ) {
-    var completedTasks by remember { mutableStateOf(0) }
-    var totalTasks by remember { mutableStateOf(0) }
-    var todayCompletedTasks by remember { mutableStateOf(0) }
-    var todayTotalTasks by remember { mutableStateOf(0) }
-    val scope = rememberCoroutineScope()
-
-    LaunchedEffect(goal.id, goal.currentDay) {
-        scope.launch {
-            try {
-                // Get overall completion
-                val (completed, total) = goalViewModel.getGoalTaskCompletion(goal.id)
-                completedTasks = completed
-                totalTasks = total
-                
-                // Get today's tasks completion
-                val todayPlan = goalViewModel.getDayPlanForDay(goal.id, goal.currentDay)
-                if (todayPlan != null) {
-                    todayCompletedTasks = todayPlan.tasks.count { it.isCompleted }
-                    todayTotalTasks = todayPlan.tasks.size
-                }
-            } catch (e: Exception) {
-                // Handle error silently
-            }
-        }
-    }
-
-    val progress = if (totalTasks > 0) completedTasks.toFloat() / totalTasks else 0f
-    val hasPendingTasks = todayTotalTasks > 0 && todayCompletedTasks < todayTotalTasks
+    // All data is now preloaded in the Goal object - no database calls needed!
+    val progress = if (goal.totalTasks > 0) goal.completedTasks.toFloat() / goal.totalTasks else 0f
+    val hasPendingTasks = goal.todayTotalTasks > 0 && goal.todayCompletedTasks < goal.todayTotalTasks
 
     Card(
         modifier = Modifier
@@ -341,7 +312,7 @@ fun GoalCard(
                 Text("Day ${goal.currentDay} of ${goal.durationDays}")
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "$completedTasks of $totalTasks tasks completed",
+                    "${goal.completedTasks} of ${goal.totalTasks} tasks completed",
                     fontSize = 14.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
