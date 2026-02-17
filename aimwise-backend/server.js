@@ -383,7 +383,8 @@ app.get("/ping", (_req, res) => res.send("pong"));
 /* ADJUST ROADMAP ENDPOINT                           */
 /* -------------------------------------------------- */
 
-// POST /adjust-roadmap - Redistributes incomplete tasks across remaining days (max 4 per day)
+// POST /adjust-roadmap - Redistributes incomplete tasks to the beginning of remaining days
+// Maintains task sequence and only affects future days (never touches completed days)
 app.post("/adjust-roadmap", async (req, res) => {
   try {
     const { remainingDays, incompleteTasks, totalRemainingDays } = req.body;
@@ -408,24 +409,32 @@ app.post("/adjust-roadmap", async (req, res) => {
       return res.json({ days: remainingDays });
     }
 
-    // Collect all existing tasks in order
-    const allTasks = [];
+    console.log(`Redistributing ${incompleteTasks.length} incomplete tasks across ${remainingDays.length} remaining days`);
+
+    // Strategy: Insert incomplete tasks at the VERY BEGINNING
+    // Then add all existing tasks from remaining days in their original order
+    const allTasks = [...incompleteTasks];
+    
     remainingDays.forEach(day => {
       if (Array.isArray(day.tasks)) {
         allTasks.push(...day.tasks);
       }
     });
 
-    // Add incomplete tasks at the end (preserving order)
-    allTasks.push(...incompleteTasks);
+    console.log(`Total tasks to redistribute: ${allTasks.length}`);
 
-    // Redistribute tasks across remaining days (max 4 per day)
+    // Calculate optimal tasks per day (flexible, not fixed at 4)
+    const avgTasksPerDay = Math.ceil(allTasks.length / remainingDays.length);
+    const maxTasksPerDay = Math.max(4, avgTasksPerDay);
+
+    console.log(`Tasks per day: avg=${avgTasksPerDay}, max=${maxTasksPerDay}`);
+
+    // Redistribute tasks sequentially across remaining days
     const adjustedDays = [];
     let taskIndex = 0;
-    const maxTasksPerDay = 4;
 
-    for (let i = 0; i < totalRemainingDays; i++) {
-      const dayNumber = remainingDays[i]?.day || (i + 1);
+    for (let i = 0; i < remainingDays.length && taskIndex < allTasks.length; i++) {
+      const dayNumber = remainingDays[i].day;
       const dayTasks = [];
 
       // Assign up to maxTasksPerDay tasks
@@ -434,28 +443,28 @@ app.post("/adjust-roadmap", async (req, res) => {
         taskIndex++;
       }
 
-      // Only add day if it has tasks
+      // Add day with tasks
       if (dayTasks.length > 0) {
         adjustedDays.push({
           day: dayNumber,
           tasks: dayTasks
         });
+        console.log(`Day ${dayNumber}: ${dayTasks.length} tasks`);
       }
     }
 
     // If there are still tasks left, distribute them across existing days
     if (taskIndex < allTasks.length) {
+      console.log(`Warning: ${allTasks.length - taskIndex} tasks remaining, distributing across existing days`);
       let dayIndex = 0;
       while (taskIndex < allTasks.length && dayIndex < adjustedDays.length) {
-        if (adjustedDays[dayIndex].tasks.length < maxTasksPerDay) {
-          adjustedDays[dayIndex].tasks.push(allTasks[taskIndex]);
-          taskIndex++;
-        } else {
-          dayIndex++;
-        }
+        adjustedDays[dayIndex].tasks.push(allTasks[taskIndex]);
+        taskIndex++;
+        dayIndex++;
       }
     }
 
+    console.log(`Adjusted roadmap: ${adjustedDays.length} days`);
     res.json({ days: adjustedDays });
 
   } catch (err) {
