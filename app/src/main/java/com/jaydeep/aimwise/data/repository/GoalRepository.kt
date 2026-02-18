@@ -1,8 +1,8 @@
 package com.jaydeep.aimwise.data.repository
 
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FieldValue
 import com.jaydeep.aimwise.data.model.DayPlan
 import com.jaydeep.aimwise.data.model.Goal
 import com.jaydeep.aimwise.data.model.Result
@@ -12,6 +12,9 @@ import com.jaydeep.aimwise.data.remote.RetrofitInstance
 import com.jaydeep.aimwise.data.remote.RoadmapRequest
 import com.jaydeep.aimwise.util.RetryUtils
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.awaitAll
 
 /**
  * Repository for managing goals and roadmaps with Firestore.
@@ -25,6 +28,17 @@ class GoalRepository {
     
     // Cache for day plans to improve performance
     private val dayCache = mutableMapOf<String, DayPlan>()
+
+    // Helper functions to avoid unchecked casts when reading lists from Firestore
+    private fun asStringList(value: Any?): List<String> = when (value) {
+        is List<*> -> value.filterIsInstance<String>()
+        else -> emptyList()
+    }
+
+    private fun asBooleanList(value: Any?): List<Boolean> = when (value) {
+        is List<*> -> value.filterIsInstance<Boolean>()
+        else -> emptyList()
+    }
 
     /**
      * Gets the reference to the current user's goals collection.
@@ -83,57 +97,65 @@ class GoalRepository {
      * Auto-syncs currentDay based on calendar date.
      */
     suspend fun getGoals(): List<Goal> {
-        val result = RetryUtils.withRetry {
+        // Specify the generic type explicitly so the compiler can infer the return type
+        val result = RetryUtils.withRetry<List<Goal>> {
             val snapshot = userGoalsRef()
                 .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
                 .limit(50) // Limit results to prevent excessive data transfer
                 .get()
                 .await()
 
-            snapshot.documents.map { doc ->
-                val createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis()
-                val durationDays = doc.getLong("durationDays")?.toInt() ?: 30
-                val storedCurrentDay = doc.getLong("currentDay")?.toInt() ?: 1
-                
-                // Calculate current day based on calendar days
-                val calculatedDay = calculateCurrentDay(createdAt, durationDays)
-                
-                android.util.Log.d("DAY_CALC", "Goal: ${doc.getString("title")}")
-                android.util.Log.d("DAY_CALC", "Stored day: $storedCurrentDay, Calculated day: $calculatedDay")
-                
-                // Update Firestore if the day has changed
-                if (calculatedDay > storedCurrentDay) {
-                    android.util.Log.d("DAY_CALC", "Updating Firestore from day $storedCurrentDay to $calculatedDay")
-                    val uid = auth.currentUser?.uid ?: throw UserNotAuthenticatedException("User not authenticated")
-                    firestore.collection("users")
-                        .document(uid)
-                        .collection("goals")
-                        .document(doc.id)
-                        .update("currentDay", calculatedDay)
-                        .await()
-                }
-                
-                // Load completion data for this goal
-                val (completedTasks, totalTasks) = getGoalTaskCompletion(doc.id)
-                
-                // Load today's task data
-                val todayPlan = getDayPlan(doc.id, calculatedDay)
-                val todayCompletedTasks = todayPlan?.tasks?.count { it.isCompleted } ?: 0
-                val todayTotalTasks = todayPlan?.tasks?.size ?: 0
-                
-                Goal(
-                    id = doc.id,
-                    title = doc.getString("title") ?: "",
-                    durationDays = durationDays,
-                    currentDay = calculatedDay, // Use calculated day, not stored
-                    createdAt = createdAt,
-                    roadmap = doc.getString("roadmap") ?: "",
-                    completedTasks = completedTasks,
-                    totalTasks = totalTasks,
-                    todayCompletedTasks = todayCompletedTasks,
-                    todayTotalTasks = todayTotalTasks
-                )
+            // Process documents in parallel using coroutineScope + async
+            val goals = coroutineScope {
+                snapshot.documents.map { doc ->
+                    async {
+                        val createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis()
+                        val durationDays = doc.getLong("durationDays")?.toInt() ?: 30
+                        val storedCurrentDay = doc.getLong("currentDay")?.toInt() ?: 1
+                        
+                        // Calculate current day based on calendar days
+                        val calculatedDay = calculateCurrentDay(createdAt, durationDays)
+                        
+                        android.util.Log.d("DAY_CALC", "Goal: ${doc.getString("title")}")
+                        android.util.Log.d("DAY_CALC", "Stored day: $storedCurrentDay, Calculated day: $calculatedDay")
+                        
+                        // Update Firestore if the day has changed
+                        if (calculatedDay > storedCurrentDay) {
+                            android.util.Log.d("DAY_CALC", "Updating Firestore from day $storedCurrentDay to $calculatedDay")
+                            val uid = auth.currentUser?.uid ?: throw UserNotAuthenticatedException("User not authenticated")
+                            firestore.collection("users")
+                                .document(uid)
+                                .collection("goals")
+                                .document(doc.id)
+                                .update("currentDay", calculatedDay)
+                                .await()
+                        }
+                        
+                        // Load completion data for this goal (in parallel)
+                        val (completedTasks, totalTasks) = getGoalTaskCompletion(doc.id)
+                        
+                        // Load today's task data (in parallel)
+                        val todayPlan = getDayPlan(doc.id, calculatedDay)
+                        val todayCompletedTasks = todayPlan?.tasks?.count { it.isCompleted } ?: 0
+                        val todayTotalTasks = todayPlan?.tasks?.size ?: 0
+                        
+                        Goal(
+                            id = doc.id,
+                            title = doc.getString("title") ?: "",
+                            durationDays = durationDays,
+                            currentDay = calculatedDay, // Use calculated day, not stored
+                            createdAt = createdAt,
+                            roadmap = doc.getString("roadmap") ?: "",
+                            completedTasks = completedTasks,
+                            totalTasks = totalTasks,
+                            todayCompletedTasks = todayCompletedTasks,
+                            todayTotalTasks = todayTotalTasks
+                        )
+                    }
+                }.awaitAll()
             }
+
+            goals
         }
         
         return when (result) {
@@ -325,9 +347,9 @@ class GoalRepository {
                     continue
                 }
                 
-                val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
-                val completed = daySnap.get("completed") as? List<Boolean> ?: emptyList()
-                
+                val tasks = asStringList(daySnap.get("tasks"))
+                val completed = asBooleanList(daySnap.get("completed"))
+
                 // Check if there are any incomplete tasks
                 val hasIncompleteTasks = tasks.indices.any { index ->
                     !completed.getOrElse(index) { false }
@@ -407,9 +429,9 @@ class GoalRepository {
             return emptyList()
         }
         
-        val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
-        val completed = daySnap.get("completed") as? List<Boolean> ?: emptyList()
-        
+        val tasks = asStringList(daySnap.get("tasks"))
+        val completed = asBooleanList(daySnap.get("completed"))
+
         return tasks.filterIndexed { index, _ ->
             !completed.getOrElse(index) { false }
         }
@@ -473,8 +495,8 @@ class GoalRepository {
                     val dayRef = goalRef.collection("days").document(missedDay.toString())
                     val daySnap = dayRef.get().await()
                     
-                    val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
-                    
+                    val tasks = asStringList(daySnap.get("tasks"))
+
                     android.util.Log.d("GoalRepository", "MARK_COMPLETED: Marking ${tasks.size} tasks as completed")
                     
                     // Mark all tasks as completed
@@ -519,9 +541,9 @@ class GoalRepository {
                         android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Day $day status: $status")
                         
                         if (status != "completed") {
-                            val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
-                            val completed = daySnap.get("completed") as? List<Boolean> ?: emptyList()
-                            
+                            val tasks = asStringList(daySnap.get("tasks"))
+                            val completed = asBooleanList(daySnap.get("completed"))
+
                             android.util.Log.d("GoalRepository", "ADJUST_ROADMAP: Day $day has ${tasks.size} total tasks")
                             
                             // Add only incomplete tasks
@@ -552,7 +574,7 @@ class GoalRepository {
                             .await()
                         
                         if (daySnap.exists()) {
-                            val tasks = daySnap.get("tasks") as? List<String> ?: emptyList()
+                            val tasks = asStringList(daySnap.get("tasks"))
                             remainingDays.add(
                                 com.jaydeep.aimwise.data.remote.DayPlanDto(
                                     day = day,
@@ -629,7 +651,7 @@ class GoalRepository {
 
             "EXTEND" -> {
                 // Legacy option: Add 3 extra days
-                goalRef.update("durationDays", com.google.firebase.firestore.FieldValue.increment(3)).await()
+                goalRef.update("durationDays", FieldValue.increment(3)).await()
                 android.util.Log.d("GoalRepository", "EXTEND: Added 3 days to duration")
             }
         }
@@ -769,8 +791,10 @@ class GoalRepository {
             .get()
             .await()
 
-        val taskDescriptions = daySnap.get("tasks") as? List<String> ?: return null
-        val completedStates = daySnap.get("completed") as? List<Boolean> ?: return null
+        val taskDescriptions = asStringList(daySnap.get("tasks"))
+        if (taskDescriptions.isEmpty()) return null
+        val completedStates = asBooleanList(daySnap.get("completed"))
+        if (completedStates.isEmpty()) return null
         val status = daySnap.getString("status") ?: "pending"
 
         // Convert separate lists to Task objects
@@ -803,7 +827,7 @@ class GoalRepository {
         var totalTasks = 0
 
         daysSnap.documents.forEach { dayDoc ->
-            val completedStates = dayDoc.get("completed") as? List<Boolean> ?: emptyList()
+            val completedStates = asBooleanList(dayDoc.get("completed"))
             totalCompleted += completedStates.count { it }
             totalTasks += completedStates.size
         }
@@ -841,5 +865,4 @@ class GoalRepository {
     }
 
 }
-
 

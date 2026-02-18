@@ -50,7 +50,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation ("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+
     //navigation
     implementation("androidx.navigation:navigation-compose:2.8.0")
 
@@ -93,6 +95,8 @@ dependencies {
         exclude(group = "xpp3", module = "xpp3")
         exclude(group = "xmlpull", module = "xmlpull")
     }
+    implementation(libs.androidx.compose.animation.core)
+    implementation(libs.androidx.ui.graphics)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
